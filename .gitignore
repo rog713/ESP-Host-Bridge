@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+*.log
+config.json
+esp_host_bridge/config.json
+esp_host_bridge/.esp_host_bridge_mdi_codepoints.json

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esp-host-bridge"
+version = "0.1.1"
+description = "Local USB CDC bridge and web UI for ESPHome host telemetry"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "Flask>=3.0",
+  "pyserial>=3.5",
+  "psutil>=5.9",
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+esp-host-bridge = "esp_host_bridge.cli:main"
+esp-host-bridge-mac = "esp_host_bridge.mac:main"
+
+[tool.setuptools]
+packages = ["esp_host_bridge"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+esp_host_bridge = ["host_ui.css", "host_ui.js"]
+
+[project.urls]
+Homepage = "https://github.com/rog713/ESP-Host-Bridge"
+Repository = "https://github.com/rog713/ESP-Host-Bridge.git"
+Issues = "https://github.com/rog713/ESP-Host-Bridge/issues"
