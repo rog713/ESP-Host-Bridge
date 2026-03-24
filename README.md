@@ -79,11 +79,11 @@ Open:
 
 ## ESPHome
 
-Unifi AI-Key inspired enclosure for Raspberry Pi 5.
+Unifi AI-Key inspired enclosure for Mini-PC.
 
 ![Unifi AI-Key Inspired Enclosure for Raspberry Pi 5](images/infinity-key-rpi5-enclosure.png)
 
-STL files for this enclosure will be posted soon on MakerWorld.
+Models for this enclosure will be posted soon on MakerWorld.
 
 [Parts list for the enclosure build](docs/bom.md)
 
