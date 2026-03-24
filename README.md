@@ -85,6 +85,8 @@ Unifi AI-Key inspired enclosure for Raspberry Pi 5.
 
 STL files for this enclosure will be posted soon on MakerWorld.
 
+Parts list: `docs/bom.md`
+
 Example ESPHome display YAMLs live in `Esphome/`.
 
 Currently included:

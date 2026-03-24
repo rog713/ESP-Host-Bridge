@@ -1,0 +1,12 @@
+# Parts List
+
+## Enclosure Build
+
+1. Waveshare ESP32-S3 Touch AMOLED 1.64  
+   https://www.waveshare.com/esp32-s3-touch-amoled-1.64.htm?srsltid=AfmBOopppFyoRNGVg7sU9AVSuBIu3uMtdbn12-0CVSDJoOAEmXg8uDph
+
+2. M2 Threaded Inserts  
+   https://www.amazon.com/dp/B088QJG676?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1
+
+3. Push Button Switch  
+   https://www.amazon.com/dp/B09R47SPGN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_5&th=1
