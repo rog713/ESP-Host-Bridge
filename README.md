@@ -79,7 +79,7 @@ Open:
 
 ## ESPHome
 
-Unifi AI-Key inspired enclosure for Mini-PC.
+Unifi AI-Key inspired enclosure for Mini-PCs.
 
 ![Unifi AI-Key Inspired Enclosure for Raspberry Pi 5](images/infinity-key-rpi5-enclosure.png)
 
