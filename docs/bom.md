@@ -10,3 +10,6 @@
 
 3. Push Button Switch  
    https://www.amazon.com/dp/B09R47SPGN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_5&th=1
+
+4. USB Panel Mount Cable  
+   https://www.amazon.com/dp/B0FNQV23MY?ref=ppx_yo2ov_dt_b_fed_asin_title
