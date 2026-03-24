@@ -14,6 +14,9 @@
 4. USB Panel Mount Cable  
    https://www.amazon.com/dp/B0FNQV23MY?ref=ppx_yo2ov_dt_b_fed_asin_title
 
+5. M2 Screws  
+   https://www.amazon.com/dp/B0CS2ZNVPN?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_8&th=1
+
 ## Optional for Raspberry Pi 5 Enclosure
 
 1. Waveshare Micro HDMI to HDMI Multifunctional Adapter  
