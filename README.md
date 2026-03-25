@@ -81,7 +81,7 @@ Open:
 
 Unifi AI-Key inspired enclosure for Mini-PCs.
 
-![Unifi AI-Key Inspired Enclosure for Raspberry Pi 5](images/infinity-key-rpi5-enclosure.png)
+![Unifi AI-Key Inspired Enclosure for Mini-PCs](images/infinity-key-rpi5-enclosure.png)
 
 Models for this enclosure will be posted soon on MakerWorld.
 
