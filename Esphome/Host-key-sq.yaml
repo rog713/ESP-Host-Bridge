@@ -36,6 +36,8 @@ esphome:
       - script.execute: notify_host_display_wake
       - delay: 150ms
       - script.execute: notify_host_display_wake
+      - delay: 250ms
+      - script.execute: apply_ui_viewport
 
 esp32:
   variant: esp32s3
@@ -91,27 +93,33 @@ usb_cdc_acm:
     - id: usb_cdc_data
 
 substitutions:
-  SS_W: "456"
+  SS_W: "302"
   SS_H: "280"
   SS_X_OFFSET: "0"
   SS_Y_OFFSET: "0"
-  UI_W: "456"
+  UI_W: "302"
   UI_H: "280"
-  HOME_TILE_W: "226"
+  VIEWPORT_ACTIVE_W: "302"
+  VIEWPORT_ACTIVE_H: "280"
+  VIEWPORT_ACTIVE_X: "0"
+  VIEWPORT_LEFT_MASK_W: "0"
+  VIEWPORT_RIGHT_X: "302"
+  VIEWPORT_RIGHT_W: "154"
+  HOME_TILE_W: "149"
   HOME_TILE_H: "138"
-  INFO_FRAME_W: "392"
-  INFO_CARD_W: "386"
+  INFO_FRAME_W: "302"
+  INFO_CARD_W: "276"
   INFO_CARD_H: "224"
-  INFO_CHART_BOX_W: "347"
+  INFO_CHART_BOX_W: "248"
   INFO_CHART_BOX_H: "118"
-  INFO_CHART_CANVAS_W: "342"
+  INFO_CHART_CANVAS_W: "244"
   INFO_CHART_CANVAS_H: "114"
   MODAL_CLOSE_SIZE: "48"
   MODAL_TEXT_W: "340"
   MODAL_BODY_H: "96"
   MODAL_ACTION_BTN_W: "118"
   MODAL_ACTION_BTN_H: "44"
-  DISPLAY_CFG_VERSION: "2026.03.24.7"
+  DISPLAY_CFG_VERSION: "2026.03.25.12-302"
   PAGE_HOME: "0"
   PAGE_DOCKER: "1"
   PAGE_SETTINGS_1: "2"
@@ -702,6 +710,9 @@ font:
     id: arimo
     size: 20
   - file: "fonts/Arimo-Regular.ttf"
+    id: arimo_18
+    size: 18
+  - file: "fonts/Arimo-Regular.ttf"
     id: arimo_16
     size: 16
   - file: "fonts/Arimo-Regular.ttf"
@@ -710,6 +721,9 @@ font:
   - file: "fonts/Arimo-Regular.ttf"
     id: arimo_25
     size: 25
+  - file: "fonts/Arimo-Regular.ttf"
+    id: arimo_30
+    size: 30
   - file: "fonts/Arimo-Regular.ttf"
     id: arimo_34
     size: 34
@@ -777,6 +791,9 @@ touchscreen:
     x_max: 455
   on_touch:
     - lambda: |-
+        const bool in_active_ui = (touch.x >= ${VIEWPORT_ACTIVE_X}) && (touch.x < (${VIEWPORT_ACTIVE_X} + ${VIEWPORT_ACTIVE_W}));
+        if (!in_active_ui) return;
+
         id(ss_last_interaction_ms) = millis();
         if (!id(hints_dismissed)) {
           id(hints_dismissed) = true;
@@ -795,7 +812,11 @@ touchscreen:
           hide(id(info_net_hint_label));
         }
     - if:
-        condition: lvgl.is_paused
+        condition:
+          and:
+            - lambda: |-
+                return (touch.x >= ${VIEWPORT_ACTIVE_X}) && (touch.x < (${VIEWPORT_ACTIVE_X} + ${VIEWPORT_ACTIVE_W}));
+            - lvgl.is_paused
         then:
           - lambda: |-
               id(display_sleeping) = false;
@@ -855,6 +876,7 @@ lvgl:
           - script.execute: draw_home_bg
       widgets:
         - obj:
+            id: content_HOME
             x: 0
             y: 0
             width: ${UI_W}
@@ -1057,6 +1079,7 @@ lvgl:
 
       widgets:
         - obj:
+            id: content_Docker
             x: 0
             y: 0
             width: ${UI_W}
@@ -1220,7 +1243,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe down to HOME"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: docker_rows_cont
                         align: TOP_MID
@@ -2222,6 +2246,7 @@ lvgl:
                 - lvgl.page.show: Settings_2
       widgets:
         - obj:
+            id: content_Settings_1
             x: 0
             y: 0
             width: ${UI_W}
@@ -2305,7 +2330,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - label:
                         align: TOP_MID
                         y: 124
@@ -2370,6 +2396,7 @@ lvgl:
       scrollable: false
       widgets:
         - obj:
+            id: content_Settings_2
             x: 0
             y: 0
             width: ${UI_W}
@@ -2453,7 +2480,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - label:
                         id: power_status_label
                         align: TOP_MID
@@ -2744,6 +2772,7 @@ lvgl:
           - lvgl.page.show: Info_1
       widgets:
         - obj:
+            id: content_Info_2
             x: 0
             y: 0
             width: ${UI_W}
@@ -2872,7 +2901,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: sys_card
                         align: CENTER
@@ -3036,6 +3066,7 @@ lvgl:
           - lvgl.page.show: Info_2
       widgets:
         - obj:
+            id: content_Info_3
             x: 0
             y: 0
             width: ${UI_W}
@@ -3164,7 +3195,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: cpu_temp_card
                         align: CENTER
@@ -3291,6 +3323,7 @@ lvgl:
           - lvgl.page.show: Info_3
       widgets:
         - obj:
+            id: content_Info_4
             x: 0
             y: 0
             width: ${UI_W}
@@ -3419,7 +3452,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: disk_temp_card
                         align: CENTER
@@ -3547,6 +3581,7 @@ lvgl:
           - lvgl.page.show: Info_4
       widgets:
         - obj:
+            id: content_Info_5
             x: 0
             y: 0
             width: ${UI_W}
@@ -3675,7 +3710,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: disk_usage_card
                         align: CENTER
@@ -3803,6 +3839,7 @@ lvgl:
           - lvgl.page.show: Info_5
       widgets:
         - obj:
+            id: content_Info_6
             x: 0
             y: 0
             width: ${UI_W}
@@ -3931,7 +3968,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: gpu_card
                         align: CENTER
@@ -4094,6 +4132,7 @@ lvgl:
           - lvgl.page.show: Info_6
       widgets:
         - obj:
+            id: content_Info_7
             x: 0
             y: 0
             width: ${UI_W}
@@ -4222,7 +4261,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: uptime_card
                         align: CENTER
@@ -4291,6 +4331,7 @@ lvgl:
           - lvgl.page.show: Info_7
       widgets:
         - obj:
+            id: content_Info_8
             x: 0
             y: 0
             width: ${UI_W}
@@ -4362,7 +4403,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: host_name_card
                         align: CENTER
@@ -4439,6 +4481,7 @@ lvgl:
 
       widgets:
         - obj:
+            id: content_Info_1
             x: 0
             y: 0
             width: ${UI_W}
@@ -4567,7 +4610,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Swipe left/right"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: info_net_card
                         align: CENTER
@@ -4731,6 +4775,7 @@ lvgl:
           - lvgl.page.show: HOME
       widgets:
         - obj:
+            id: content_VMS
             x: 0
             y: 0
             width: ${UI_W}
@@ -4923,7 +4968,8 @@ lvgl:
                         text_color: 0x9CA3AF
                         text_font: arimo_16
                         bg_opa: TRANSP
-                        text: "Long press a VM for actions"
+                        hidden: true
+                        text: ""
                     - obj:
                         id: vms_rows_cont
                         align: TOP_MID
@@ -6134,6 +6180,33 @@ lvgl:
     scrollbar_mode: "OFF"
     widgets:
       - obj:
+          id: global_left_mask
+          x: 0
+          y: 0
+          width: ${VIEWPORT_LEFT_MASK_W}
+          height: 100%
+          bg_color: 0x000000
+          bg_opa: COVER
+          radius: 0
+          pad_all: 0
+          border_width: 0
+          clickable: true
+          scrollable: false
+
+      - obj:
+          id: global_right_mask
+          x: ${VIEWPORT_RIGHT_X}
+          y: 0
+          width: ${VIEWPORT_RIGHT_W}
+          height: 100%
+          bg_color: 0x000000
+          bg_opa: COVER
+          radius: 0
+          pad_all: 0
+          border_width: 0
+          clickable: true
+          scrollable: false
+      - obj:
           id: boot_screen
           x: 0
           y: 0
@@ -6236,6 +6309,8 @@ lvgl:
           border_width: 0
           scrollbar_mode: "OFF"
           scrollable: false
+          on_short_click:
+            - lvgl.widget.hide: docker_name_modal
           widgets:
             - obj:
                 id: docker_name_modal_card
@@ -6295,8 +6370,8 @@ lvgl:
                       align: TOP_RIGHT
                       x: -12
                       y: 10
-                      width: ${MODAL_CLOSE_SIZE}
-                      height: ${MODAL_CLOSE_SIZE}
+                      width: 52
+                      height: 52
                       radius: 14
                       bg_color: 0x08122B
                       bg_opa: "90%"
@@ -6454,6 +6529,8 @@ lvgl:
           border_width: 0
           scrollbar_mode: "OFF"
           scrollable: false
+          on_short_click:
+            - lvgl.widget.hide: vms_name_modal
           widgets:
             - obj:
                 id: vms_name_modal_card
@@ -6513,8 +6590,8 @@ lvgl:
                       align: TOP_RIGHT
                       x: -12
                       y: 10
-                      width: ${MODAL_CLOSE_SIZE}
-                      height: ${MODAL_CLOSE_SIZE}
+                      width: 52
+                      height: 52
                       radius: 14
                       bg_color: 0x08122B
                       bg_opa: "90%"
@@ -6722,6 +6799,7 @@ script:
           if (p == ${PAGE_HOST_NAME} && id(Info_8) != nullptr && id(Info_8)->obj != nullptr) { lv_scr_load(id(Info_8)->obj); return; }
           if (p == ${PAGE_VMS} && id(VMS) != nullptr && id(VMS)->obj != nullptr) { lv_scr_load(id(VMS)->obj); return; }
           if (id(HOME) != nullptr && id(HOME)->obj != nullptr) lv_scr_load(id(HOME)->obj);
+      - script.execute: apply_ui_viewport
 
   - id: notify_host_display_sleep
     then:
@@ -6765,12 +6843,542 @@ script:
           }
           id(usb_cdc_data).write_array(reinterpret_cast<const uint8_t *>(buf), strlen(buf));
 
+
+  - id: apply_ui_viewport
+    then:
+      - lambda: |-
+          const int active_w = ${VIEWPORT_ACTIVE_W};
+          const int active_h = ${VIEWPORT_ACTIVE_H};
+
+          auto set_page_viewport = [&](esphome::lvgl::LvPageType *page) {
+            if (page == nullptr || page->obj == nullptr) return;
+            lv_obj_set_pos(page->obj, ${VIEWPORT_ACTIVE_X}, 0);
+            lv_obj_set_size(page->obj, active_w, active_h);
+            lv_obj_clear_flag(page->obj, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scrollbar_mode(page->obj, LV_SCROLLBAR_MODE_OFF);
+          };
+
+          auto scale_with = [](int v, float sx_local) -> int {
+            const float sign = (v >= 0) ? 0.5f : -0.5f;
+            return (int)(((float) v * sx_local) + sign);
+          };
+
+          auto scale_tree_x = [&](auto &&self, lv_obj_t *parent, float sx_local) -> void {
+            if (parent == nullptr) return;
+            const int parent_w = lv_obj_get_width(parent);
+            const uint32_t cnt = lv_obj_get_child_cnt(parent);
+            for (uint32_t i = 0; i < cnt; i++) {
+              lv_obj_t *child = lv_obj_get_child(parent, i);
+              if (child == nullptr) continue;
+
+              const int x = lv_obj_get_x(child);
+              const int w = lv_obj_get_width(child);
+
+              if (x != 0) lv_obj_set_x(child, scale_with(x, sx_local));
+
+              const bool is_full_width = (std::abs(w - parent_w) <= 2);
+              const bool is_label = lv_obj_check_type(child, &lv_label_class);
+              if (!is_label && !is_full_width && w > ((parent_w * 3) / 4)) {
+                lv_obj_set_width(child, std::max(2, scale_with(w, sx_local)));
+              }
+
+              self(self, child, sx_local);
+            }
+          };
+
+          auto scale_root_once = [&](lv_obj_t *root, int target_w) {
+            if (root == nullptr) return;
+            const int rw = lv_obj_get_width(root);
+            if (rw <= 2 || target_w <= 2) return;
+            if (rw <= (target_w + 2)) {
+              lv_obj_align(root, LV_ALIGN_TOP_LEFT, ${VIEWPORT_ACTIVE_X}, 0);
+              return;
+            }
+            const float sx_local = (float) target_w / (float) rw;
+            scale_tree_x(scale_tree_x, root, sx_local);
+            lv_obj_set_width(root, target_w);
+            lv_obj_align(root, LV_ALIGN_TOP_LEFT, ${VIEWPORT_ACTIVE_X}, 0);
+          };
+
+          esphome::lvgl::LvPageType *pages[] = {
+            id(HOME),
+            id(Docker),
+            id(Settings_1),
+            id(Settings_2),
+            id(Info_1),
+            id(Info_2),
+            id(Info_3),
+            id(Info_4),
+            id(Info_5),
+            id(Info_6),
+            id(Info_7),
+            id(Info_8),
+            id(VMS),
+            id(Screen_Saver),
+          };
+          for (auto *page : pages) {
+            set_page_viewport(page);
+          }
+
+          scale_root_once(id(content_HOME), active_w);
+          scale_root_once(id(content_Docker), active_w);
+          scale_root_once(id(content_Settings_1), active_w);
+          scale_root_once(id(content_Settings_2), active_w);
+          scale_root_once(id(content_Info_1), active_w);
+          scale_root_once(id(content_Info_2), active_w);
+          scale_root_once(id(content_Info_3), active_w);
+          scale_root_once(id(content_Info_4), active_w);
+          scale_root_once(id(content_Info_5), active_w);
+          scale_root_once(id(content_Info_6), active_w);
+          scale_root_once(id(content_Info_7), active_w);
+          scale_root_once(id(content_Info_8), active_w);
+          scale_root_once(id(content_VMS), active_w);
+          scale_root_once(id(docker_name_modal_card), 274);
+          scale_root_once(id(vms_name_modal_card), 274);
+
+          lv_obj_t *content_roots[] = {
+            id(content_HOME),
+            id(content_Docker),
+            id(content_Settings_1),
+            id(content_Settings_2),
+            id(content_Info_1),
+            id(content_Info_2),
+            id(content_Info_3),
+            id(content_Info_4),
+            id(content_Info_5),
+            id(content_Info_6),
+            id(content_Info_7),
+            id(content_Info_8),
+            id(content_VMS),
+          };
+          for (auto *root : content_roots) {
+            if (root == nullptr) continue;
+            lv_obj_set_pos(root, 0, 0);
+            lv_obj_set_size(root, active_w, active_h);
+            lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_OFF);
+          }
+
+          auto set_header = [&](lv_obj_t *header) {
+            if (header == nullptr) return;
+            lv_obj_set_pos(header, 0, 0);
+            lv_obj_set_width(header, active_w);
+          };
+          lv_obj_t *headers[] = {
+            id(docker_header),
+            id(settings_1_header),
+            id(settings_header),
+            id(sys_header),
+            id(cpu_temp_header),
+            id(disk_temp_header),
+            id(disk_usage_header),
+            id(gpu_header),
+            id(uptime_header),
+            id(host_name_header),
+            id(info_net_header),
+            id(vms_header),
+          };
+          for (auto *header : headers) {
+            set_header(header);
+          }
+
+          auto set_header_title_font = [&](lv_obj_t *header, esphome::font::Font *font) {
+            if (header == nullptr || font == nullptr) return;
+            lv_obj_t *title = lv_obj_get_child(header, 0);
+            if (title == nullptr) return;
+            lv_obj_set_style_text_font(title, font->get_lv_font(), LV_PART_MAIN);
+          };
+          set_header_title_font(id(cpu_temp_header), id(arimo_18));
+          set_header_title_font(id(disk_temp_header), id(arimo_18));
+          set_header_title_font(id(disk_usage_header), id(arimo_18));
+          set_header_title_font(id(host_name_header), id(arimo_18));
+
+          if (id(docker_name_modal_card) != nullptr) {
+            lv_obj_set_size(id(docker_name_modal_card), 274, 224);
+            lv_obj_align(id(docker_name_modal_card), LV_ALIGN_LEFT_MID, 14, 0);
+          }
+          if (id(vms_name_modal_card) != nullptr) {
+            lv_obj_set_size(id(vms_name_modal_card), 274, 224);
+            lv_obj_align(id(vms_name_modal_card), LV_ALIGN_LEFT_MID, 14, 0);
+          }
+
+          if (id(home_bg_canvas) != nullptr) {
+            lv_obj_set_size(id(home_bg_canvas), active_w, active_h);
+            lv_obj_align(id(home_bg_canvas), LV_ALIGN_TOP_LEFT, ${VIEWPORT_ACTIVE_X}, 0);
+            id(home_bg_drawn) = false;
+          }
+          if (id(ss_canvas) != nullptr) {
+            lv_obj_set_size(id(ss_canvas), active_w, active_h);
+            lv_obj_align(id(ss_canvas), LV_ALIGN_TOP_LEFT, ${VIEWPORT_ACTIVE_X}, 0);
+          }
+
+          if (id(docker_btn) != nullptr) {
+            lv_obj_set_size(id(docker_btn), 149, 138);
+            lv_obj_align(id(docker_btn), LV_ALIGN_TOP_LEFT, 0, 0);
+          }
+          if (id(info_btn) != nullptr) {
+            lv_obj_set_size(id(info_btn), 149, 138);
+            lv_obj_align(id(info_btn), LV_ALIGN_BOTTOM_LEFT, 0, 0);
+          }
+          if (id(vms_btn) != nullptr) {
+            lv_obj_set_size(id(vms_btn), 149, 138);
+            lv_obj_align(id(vms_btn), LV_ALIGN_TOP_RIGHT, 0, 0);
+          }
+          if (id(settings_btn) != nullptr) {
+            lv_obj_set_size(id(settings_btn), 149, 138);
+            lv_obj_align(id(settings_btn), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+          }
+          if (id(cntr_btn) != nullptr) {
+            lv_obj_set_size(id(cntr_btn), 100, 100);
+            lv_obj_align(id(cntr_btn), LV_ALIGN_CENTER, 0, 0);
+          }
+
+          if (id(docker_header) != nullptr) {
+            lv_obj_t *pill_total = lv_obj_get_child(id(docker_header), 1);
+            lv_obj_t *pill_running = lv_obj_get_child(id(docker_header), 2);
+            lv_obj_t *pill_down = lv_obj_get_child(id(docker_header), 3);
+            if (pill_total != nullptr) {
+              lv_obj_set_size(pill_total, 66, 22);
+              lv_obj_align(pill_total, LV_ALIGN_TOP_MID, -70, 34);
+            }
+            if (pill_running != nullptr) {
+              lv_obj_set_size(pill_running, 66, 22);
+              lv_obj_align(pill_running, LV_ALIGN_TOP_MID, 0, 34);
+            }
+            if (pill_down != nullptr) {
+              lv_obj_set_size(pill_down, 66, 22);
+              lv_obj_align(pill_down, LV_ALIGN_TOP_MID, 70, 34);
+            }
+          }
+
+          if (id(vms_header) != nullptr) {
+            lv_obj_t *pill_total = lv_obj_get_child(id(vms_header), 1);
+            lv_obj_t *pill_running = lv_obj_get_child(id(vms_header), 2);
+            lv_obj_t *pill_stopped = lv_obj_get_child(id(vms_header), 3);
+            lv_obj_t *pill_paused = lv_obj_get_child(id(vms_header), 4);
+            if (pill_total != nullptr) {
+              lv_obj_set_size(pill_total, 54, 22);
+              lv_obj_align(pill_total, LV_ALIGN_TOP_MID, -91, 34);
+            }
+            if (pill_running != nullptr) {
+              lv_obj_set_size(pill_running, 54, 22);
+              lv_obj_align(pill_running, LV_ALIGN_TOP_MID, -33, 34);
+            }
+            if (pill_stopped != nullptr) {
+              lv_obj_set_size(pill_stopped, 54, 22);
+              lv_obj_align(pill_stopped, LV_ALIGN_TOP_MID, 25, 34);
+            }
+            if (pill_paused != nullptr) {
+              lv_obj_set_size(pill_paused, 64, 22);
+              lv_obj_align(pill_paused, LV_ALIGN_TOP_MID, 89, 34);
+            }
+          }
+
+          if (id(settings_1_edge_left) != nullptr) {
+            lv_obj_set_pos(id(settings_1_edge_left), 0, 60);
+            lv_obj_set_size(id(settings_1_edge_left), 28, 220);
+          }
+          if (id(settings_1_edge_right) != nullptr) {
+            lv_obj_set_pos(id(settings_1_edge_right), active_w - 28, 60);
+            lv_obj_set_size(id(settings_1_edge_right), 28, 220);
+          }
+          if (id(settings_2_edge_left) != nullptr) {
+            lv_obj_set_pos(id(settings_2_edge_left), 0, 60);
+            lv_obj_set_size(id(settings_2_edge_left), 28, 220);
+          }
+          if (id(settings_2_edge_right) != nullptr) {
+            lv_obj_set_pos(id(settings_2_edge_right), active_w - 28, 60);
+            lv_obj_set_size(id(settings_2_edge_right), 28, 220);
+          }
+          if (id(shutdown_btn) != nullptr) {
+            lv_obj_set_size(id(shutdown_btn), 260, 52);
+            lv_obj_align(id(shutdown_btn), LV_ALIGN_TOP_MID, 0, 104);
+          }
+          if (id(restart_btn) != nullptr) {
+            lv_obj_set_size(id(restart_btn), 260, 52);
+            lv_obj_align(id(restart_btn), LV_ALIGN_TOP_MID, 0, 192);
+          }
+
+          auto set_card = [&](lv_obj_t *card) {
+            if (card == nullptr) return;
+            lv_obj_set_size(card, 276, 224);
+            lv_obj_align(card, LV_ALIGN_CENTER, 0, 30);
+          };
+
+          auto set_chart = [&](lv_obj_t *box, lv_obj_t *canvas) {
+            if (box != nullptr) {
+              lv_obj_set_pos(box, 14, 88);
+              lv_obj_set_size(box, 248, 118);
+            }
+            if (canvas != nullptr) {
+              lv_obj_set_size(canvas, 244, 114);
+              lv_obj_align(canvas, LV_ALIGN_CENTER, 0, 0);
+            }
+          };
+
+          auto set_stat = [&](lv_obj_t *dot, int dx, int dy,
+                              lv_obj_t *title, int tx, int ty,
+                              lv_obj_t *value, int vx, int vy, int vw,
+                              lv_obj_t *unit, int ux, int uy) {
+            if (dot != nullptr) lv_obj_set_pos(dot, dx, dy);
+            if (title != nullptr) lv_obj_set_pos(title, tx, ty);
+            if (value != nullptr) {
+              lv_obj_set_pos(value, vx, vy);
+              lv_obj_set_width(value, vw);
+            }
+            if (unit != nullptr) lv_obj_set_pos(unit, ux, uy);
+          };
+
+          auto set_font = [&](lv_obj_t *obj, esphome::font::Font *font) {
+            if (obj == nullptr || font == nullptr) return;
+            lv_obj_set_style_text_font(obj, font->get_lv_font(), LV_PART_MAIN);
+          };
+
+          auto place_value_unit = [&](lv_obj_t *value, int vx, int vy, lv_obj_t *unit, int dx, int dy) {
+            if (value != nullptr) {
+              lv_obj_set_pos(value, vx, vy);
+              lv_obj_set_width(value, LV_SIZE_CONTENT);
+            }
+            if (unit != nullptr && value != nullptr) {
+              lv_obj_align_to(unit, value, LV_ALIGN_OUT_RIGHT_MID, dx, dy);
+            }
+          };
+
+          set_card(id(info_net_card));
+          set_chart(id(info_net_chart_box), id(info_net_graph));
+          set_font(id(info_net_rx_value), id(arimo_30));
+          set_font(id(info_net_tx_value), id(arimo_30));
+          set_stat(id(info_net_rx_dot), 18, 26, id(info_net_rx_title), 34, 14, id(info_net_rx_value), 34, 24, 80, id(info_net_rx_unit), 0, 0);
+          set_font(id(info_net_rx_unit), id(arimo_16));
+          place_value_unit(id(info_net_rx_value), 34, 24, id(info_net_rx_unit), 2, 6);
+          set_stat(id(info_net_tx_dot), 146, 26, id(info_net_tx_title), 160, 14, id(info_net_tx_value), 160, 24, 46, id(info_net_tx_unit), 0, 0);
+          set_font(id(info_net_tx_unit), id(arimo_16));
+          place_value_unit(id(info_net_tx_value), 160, 24, id(info_net_tx_unit), 2, 6);
+
+          set_card(id(sys_card));
+          set_chart(id(sys_chart_box), id(sys_graph));
+          set_font(id(sys_cpu_value), id(arimo_30));
+          set_font(id(sys_mem_value), id(arimo_30));
+          set_font(id(sys_cpu_unit), id(arimo_16));
+          set_font(id(sys_mem_unit), id(arimo_16));
+          set_stat(id(sys_cpu_dot), 18, 26, id(sys_cpu_title), 34, 14, id(sys_cpu_value), 34, 24, 78, id(sys_cpu_unit), 0, 0);
+          place_value_unit(id(sys_cpu_value), 34, 24, id(sys_cpu_unit), 2, 6);
+          set_stat(id(sys_mem_dot), 146, 26, id(sys_mem_title), 160, 14, id(sys_mem_value), 160, 24, 48, id(sys_mem_unit), 0, 0);
+          place_value_unit(id(sys_mem_value), 160, 24, id(sys_mem_unit), 2, 6);
+
+          set_card(id(cpu_temp_card));
+          set_chart(id(cpu_temp_chart_box), id(cpu_temp_graph));
+          set_font(id(cpu_temp_value), id(arimo_30));
+          set_font(id(cpu_temp_unit), id(arimo_16));
+          set_stat(id(cpu_temp_dot), 18, 26, id(cpu_temp_title), 34, 14, id(cpu_temp_value), 34, 24, 78, id(cpu_temp_unit), 0, 0);
+          place_value_unit(id(cpu_temp_value), 34, 24, id(cpu_temp_unit), 2, 6);
+
+          set_card(id(disk_temp_card));
+          set_chart(id(disk_temp_chart_box), id(disk_temp_graph));
+          set_font(id(disk_temp_value), id(arimo_30));
+          set_font(id(disk_temp_unit), id(arimo_16));
+          set_stat(id(disk_temp_dot), 18, 26, id(disk_temp_title), 34, 14, id(disk_temp_value), 34, 24, 78, id(disk_temp_unit), 0, 0);
+          place_value_unit(id(disk_temp_value), 34, 24, id(disk_temp_unit), 2, 6);
+
+          set_card(id(disk_usage_card));
+          set_chart(id(disk_usage_chart_box), id(disk_usage_graph));
+          set_font(id(disk_usage_value), id(arimo_30));
+          set_font(id(disk_usage_unit), id(arimo_16));
+          set_stat(id(disk_usage_dot), 18, 26, id(disk_usage_title), 34, 14, id(disk_usage_value), 34, 24, 78, id(disk_usage_unit), 0, 0);
+          place_value_unit(id(disk_usage_value), 34, 24, id(disk_usage_unit), 2, 6);
+
+          set_card(id(gpu_card));
+          set_chart(id(gpu_chart_box), id(gpu_graph));
+          set_font(id(gpu_util_value), id(arimo_30));
+          set_font(id(gpu_temp_value), id(arimo_30));
+          set_font(id(gpu_util_unit), id(arimo_16));
+          set_font(id(gpu_temp_unit), id(arimo_16));
+          set_stat(id(gpu_util_dot), 18, 26, id(gpu_util_title), 34, 14, id(gpu_util_value), 34, 24, 78, id(gpu_util_unit), 0, 0);
+          place_value_unit(id(gpu_util_value), 34, 24, id(gpu_util_unit), 2, 6);
+          set_stat(id(gpu_temp_dot), 146, 26, id(gpu_temp_title), 160, 14, id(gpu_temp_value), 160, 24, 48, id(gpu_temp_unit), 0, 0);
+          place_value_unit(id(gpu_temp_value), 160, 24, id(gpu_temp_unit), 2, 6);
+
+          set_card(id(uptime_card));
+          set_font(id(uptime_value), id(arimo_25));
+
+          set_card(id(host_name_card));
+          set_font(id(host_name_value), id(arimo_25));
+          set_font(id(host_fw_value), id(arimo_14));
+          if (id(host_name_value) != nullptr) {
+            lv_obj_set_size(id(host_name_value), 276, 70);
+            lv_obj_align(id(host_name_value), LV_ALIGN_TOP_MID, 0, 42);
+          }
+          if (id(host_fw_value) != nullptr) {
+            lv_obj_set_width(id(host_fw_value), 264);
+            lv_obj_align(id(host_fw_value), LV_ALIGN_BOTTOM_MID, 0, -18);
+          }
+
+          if (id(docker_rows_cont) != nullptr) {
+            lv_obj_set_size(id(docker_rows_cont), 276, 204);
+            lv_obj_align(id(docker_rows_cont), LV_ALIGN_TOP_MID, 0, 74);
+          }
+          if (id(vms_rows_cont) != nullptr) {
+            lv_obj_set_size(id(vms_rows_cont), 276, 204);
+            lv_obj_align(id(vms_rows_cont), LV_ALIGN_TOP_MID, 0, 74);
+          }
+
+          lv_obj_t *docker_cards[] = {
+            id(docker_row_0_card), id(docker_row_1_card), id(docker_row_2_card), id(docker_row_3_card), id(docker_row_4_card),
+            id(docker_row_5_card), id(docker_row_6_card), id(docker_row_7_card), id(docker_row_8_card), id(docker_row_9_card),
+          };
+          for (auto *obj : docker_cards) {
+            if (obj == nullptr) continue;
+            lv_obj_set_x(obj, 10);
+            lv_obj_set_width(obj, 256);
+          }
+
+          lv_obj_t *vms_cards[] = {
+            id(vms_row_0_card), id(vms_row_1_card), id(vms_row_2_card), id(vms_row_3_card), id(vms_row_4_card),
+            id(vms_row_5_card), id(vms_row_6_card), id(vms_row_7_card), id(vms_row_8_card), id(vms_row_9_card),
+          };
+          for (auto *obj : vms_cards) {
+            if (obj == nullptr) continue;
+            lv_obj_set_x(obj, 10);
+            lv_obj_set_width(obj, 256);
+          }
+
+          if (id(boot_screen) != nullptr) {
+            lv_obj_set_pos(id(boot_screen), ${VIEWPORT_ACTIVE_X}, 0);
+            lv_obj_set_size(id(boot_screen), active_w, active_h);
+            lv_obj_clear_flag(id(boot_screen), LV_OBJ_FLAG_SCROLLABLE);
+          }
+          if (id(host_power_screen) != nullptr) {
+            lv_obj_set_pos(id(host_power_screen), ${VIEWPORT_ACTIVE_X}, 0);
+            lv_obj_set_size(id(host_power_screen), active_w, active_h);
+            lv_obj_clear_flag(id(host_power_screen), LV_OBJ_FLAG_SCROLLABLE);
+          }
+          if (id(docker_name_modal) != nullptr) {
+            lv_obj_set_pos(id(docker_name_modal), ${VIEWPORT_ACTIVE_X}, 0);
+            lv_obj_set_size(id(docker_name_modal), active_w, active_h);
+            lv_obj_clear_flag(id(docker_name_modal), LV_OBJ_FLAG_SCROLLABLE);
+          }
+          if (id(vms_name_modal) != nullptr) {
+            lv_obj_set_pos(id(vms_name_modal), ${VIEWPORT_ACTIVE_X}, 0);
+            lv_obj_set_size(id(vms_name_modal), active_w, active_h);
+            lv_obj_clear_flag(id(vms_name_modal), LV_OBJ_FLAG_SCROLLABLE);
+          }
+          if (id(global_left_mask) != nullptr) {
+            lv_obj_move_foreground(id(global_left_mask));
+          }
+          if (id(global_right_mask) != nullptr) {
+            lv_obj_move_foreground(id(global_right_mask));
+          }
+
+          id(touch).set_calibration(0, 421, 0, 301);
+
+          lv_obj_t *docker_names[] = {
+            id(docker_row_0_name), id(docker_row_1_name), id(docker_row_2_name), id(docker_row_3_name),
+            id(docker_row_4_name), id(docker_row_5_name), id(docker_row_6_name), id(docker_row_7_name),
+            id(docker_row_8_name), id(docker_row_9_name),
+          };
+          lv_obj_t *docker_states[] = {
+            id(docker_row_0_state), id(docker_row_1_state), id(docker_row_2_state), id(docker_row_3_state),
+            id(docker_row_4_state), id(docker_row_5_state), id(docker_row_6_state), id(docker_row_7_state),
+            id(docker_row_8_state), id(docker_row_9_state),
+          };
+          for (auto *obj : docker_names) {
+            if (obj != nullptr) {
+              lv_obj_set_width(obj, 98);
+              lv_obj_align(obj, LV_ALIGN_LEFT_MID, 48, 0);
+            }
+          }
+          for (auto *obj : docker_states) {
+            if (obj != nullptr) {
+              lv_obj_set_width(obj, 88);
+              lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
+              lv_obj_align(obj, LV_ALIGN_RIGHT_MID, -16, 0);
+            }
+          }
+
+          lv_obj_t *vms_names[] = {
+            id(vms_row_0_name), id(vms_row_1_name), id(vms_row_2_name), id(vms_row_3_name),
+            id(vms_row_4_name), id(vms_row_5_name), id(vms_row_6_name), id(vms_row_7_name),
+            id(vms_row_8_name), id(vms_row_9_name),
+          };
+          lv_obj_t *vms_states[] = {
+            id(vms_row_0_state), id(vms_row_1_state), id(vms_row_2_state), id(vms_row_3_state),
+            id(vms_row_4_state), id(vms_row_5_state), id(vms_row_6_state), id(vms_row_7_state),
+            id(vms_row_8_state), id(vms_row_9_state),
+          };
+          for (auto *obj : vms_names) {
+            if (obj != nullptr) {
+              lv_obj_set_width(obj, 94);
+              lv_obj_align(obj, LV_ALIGN_LEFT_MID, 48, 0);
+            }
+          }
+          for (auto *obj : vms_states) {
+            if (obj != nullptr) {
+              lv_obj_set_width(obj, 88);
+              lv_label_set_long_mode(obj, LV_LABEL_LONG_CLIP);
+              lv_obj_align(obj, LV_ALIGN_RIGHT_MID, -16, 0);
+            }
+          }
+
+          if (id(docker_modal_close_btn) != nullptr) {
+            lv_obj_set_size(id(docker_modal_close_btn), 52, 52);
+            lv_obj_align(id(docker_modal_close_btn), LV_ALIGN_TOP_RIGHT, -8, 6);
+          }
+          if (id(docker_name_modal_text) != nullptr) {
+            lv_obj_set_width(id(docker_name_modal_text), 180);
+            lv_obj_align(id(docker_name_modal_text), LV_ALIGN_TOP_MID, 0, 2);
+          }
+          if (id(docker_modal_status_text) != nullptr) {
+            set_font(id(docker_modal_status_text), id(arimo_14));
+            lv_obj_align(id(docker_modal_status_text), LV_ALIGN_TOP_MID, 0, 42);
+          }
+          if (id(docker_modal_details_text) != nullptr) {
+            lv_obj_set_width(id(docker_modal_details_text), 196);
+            lv_obj_align(id(docker_modal_details_text), LV_ALIGN_TOP_MID, 0, 76);
+          }
+          if (id(docker_modal_start_btn) != nullptr) {
+            lv_obj_set_size(id(docker_modal_start_btn), 104, 42);
+            lv_obj_align(id(docker_modal_start_btn), LV_ALIGN_LEFT_MID, 12, 0);
+          }
+          if (id(docker_modal_stop_btn) != nullptr) {
+            lv_obj_set_size(id(docker_modal_stop_btn), 104, 42);
+            lv_obj_align(id(docker_modal_stop_btn), LV_ALIGN_RIGHT_MID, -12, 0);
+          }
+
+          if (id(vms_modal_close_btn) != nullptr) {
+            lv_obj_set_size(id(vms_modal_close_btn), 52, 52);
+            lv_obj_align(id(vms_modal_close_btn), LV_ALIGN_TOP_RIGHT, -8, 6);
+          }
+          if (id(vms_name_modal_text) != nullptr) {
+            lv_obj_set_width(id(vms_name_modal_text), 180);
+            lv_obj_align(id(vms_name_modal_text), LV_ALIGN_TOP_MID, 0, 2);
+          }
+          if (id(vms_modal_status_text) != nullptr) {
+            set_font(id(vms_modal_status_text), id(arimo_14));
+            lv_obj_align(id(vms_modal_status_text), LV_ALIGN_TOP_MID, 0, 42);
+          }
+          if (id(vms_modal_details_text) != nullptr) {
+            lv_obj_set_width(id(vms_modal_details_text), 196);
+            lv_obj_align(id(vms_modal_details_text), LV_ALIGN_TOP_MID, 0, 76);
+          }
+          if (id(vms_modal_start_btn) != nullptr) {
+            lv_obj_set_size(id(vms_modal_start_btn), 72, 42);
+            lv_obj_align(id(vms_modal_start_btn), LV_ALIGN_LEFT_MID, 12, 0);
+          }
+          if (id(vms_modal_stop_btn) != nullptr) {
+            lv_obj_set_size(id(vms_modal_stop_btn), 72, 42);
+            lv_obj_align(id(vms_modal_stop_btn), LV_ALIGN_CENTER, 0, 0);
+          }
+          if (id(vms_modal_restart_btn) != nullptr) {
+            lv_obj_set_size(id(vms_modal_restart_btn), 72, 42);
+            lv_obj_align(id(vms_modal_restart_btn), LV_ALIGN_RIGHT_MID, -12, 0);
+          }
+
+
   - id: sync_host_name_page
     then:
       - lambda: |-
           if (id(host_name_hint_label) != nullptr) {
-            if (id(hints_dismissed)) lv_obj_add_flag(id(host_name_hint_label), LV_OBJ_FLAG_HIDDEN);
-            else lv_obj_clear_flag(id(host_name_hint_label), LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(id(host_name_hint_label), LV_OBJ_FLAG_HIDDEN);
           }
           if (id(host_name_value) == nullptr) return;
 
@@ -7820,6 +8428,7 @@ script:
             } else if (!have_data) {
               lv_label_set_text(id(info_net_rx_value), "--");
             }
+            if (id(info_net_rx_unit) != nullptr) { if (!have_data) lv_obj_add_flag(id(info_net_rx_unit), LV_OBJ_FLAG_HIDDEN); else { lv_obj_clear_flag(id(info_net_rx_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(info_net_rx_unit), id(info_net_rx_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); } }
           }
 
           if (id(info_net_tx_value) != nullptr) {
@@ -7835,6 +8444,7 @@ script:
             } else if (!have_data) {
               lv_label_set_text(id(info_net_tx_value), "--");
             }
+            if (id(info_net_tx_unit) != nullptr) { if (!have_data) lv_obj_add_flag(id(info_net_tx_unit), LV_OBJ_FLAG_HIDDEN); else { lv_obj_clear_flag(id(info_net_tx_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(info_net_tx_unit), id(info_net_tx_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); } }
           }
 
           // UNAS-style throughput chart: dual line + filled area under each line.
@@ -8024,6 +8634,7 @@ script:
             snprintf(buf, sizeof(buf), "%.0f", v);
             lv_label_set_text(id(sys_cpu_value), buf);
             lv_obj_set_style_text_color(id(sys_cpu_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
+            if (id(sys_cpu_unit) != nullptr) { lv_obj_clear_flag(id(sys_cpu_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(sys_cpu_unit), id(sys_cpu_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
           }
 
           if (id(sys_mem_value) != nullptr) {
@@ -8035,6 +8646,7 @@ script:
             snprintf(buf, sizeof(buf), "%.0f", v);
             lv_label_set_text(id(sys_mem_value), buf);
             lv_obj_set_style_text_color(id(sys_mem_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xF3, 0xE8, 0xFF), 0);
+            if (id(sys_mem_unit) != nullptr) { lv_obj_clear_flag(id(sys_mem_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(sys_mem_unit), id(sys_mem_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
           }
 
           // Unified status badge.
@@ -8232,6 +8844,7 @@ script:
             if (unavailable) {
               lv_label_set_text(id(cpu_temp_value), "--");
               lv_obj_set_style_text_color(id(cpu_temp_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(cpu_temp_unit) != nullptr) lv_obj_add_flag(id(cpu_temp_unit), LV_OBJ_FLAG_HIDDEN);
             } else {
               float v = id(cpu_temp_c_last);
               if (isnan(v)) v = 0.0f;
@@ -8241,6 +8854,7 @@ script:
               snprintf(buf, sizeof(buf), "%.0f", v);
               lv_label_set_text(id(cpu_temp_value), buf);
               lv_obj_set_style_text_color(id(cpu_temp_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
+              if (id(cpu_temp_unit) != nullptr) { lv_obj_clear_flag(id(cpu_temp_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(cpu_temp_unit), id(cpu_temp_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
             }
           }
 
@@ -8413,6 +9027,7 @@ script:
             snprintf(buf, sizeof(buf), "%.0f", v);
             lv_label_set_text(id(disk_usage_value), buf);
             lv_obj_set_style_text_color(id(disk_usage_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
+            if (id(disk_usage_unit) != nullptr) { lv_obj_clear_flag(id(disk_usage_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(disk_usage_unit), id(disk_usage_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
           }
 
           if (id(disk_usage_loading_label) != nullptr) {
@@ -8576,6 +9191,7 @@ script:
             if (unavailable) {
               lv_label_set_text(id(disk_temp_value), "--");
               lv_obj_set_style_text_color(id(disk_temp_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(disk_temp_unit) != nullptr) lv_obj_add_flag(id(disk_temp_unit), LV_OBJ_FLAG_HIDDEN);
             } else {
               float v = id(disk_temp_c_last);
               if (isnan(v)) v = 0.0f;
@@ -8585,6 +9201,7 @@ script:
               snprintf(buf, sizeof(buf), "%.0f", v);
               lv_label_set_text(id(disk_temp_value), buf);
               lv_obj_set_style_text_color(id(disk_temp_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xF3, 0xE8, 0xFF), 0);
+              if (id(disk_temp_unit) != nullptr) { lv_obj_clear_flag(id(disk_temp_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(disk_temp_unit), id(disk_temp_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
             }
           }
 
@@ -8752,9 +9369,11 @@ script:
             if (disabled) {
               lv_label_set_text(id(gpu_util_value), "--");
               lv_obj_set_style_text_color(id(gpu_util_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(gpu_util_unit) != nullptr) lv_obj_add_flag(id(gpu_util_unit), LV_OBJ_FLAG_HIDDEN);
             } else if (unavailable) {
               lv_label_set_text(id(gpu_util_value), "--");
               lv_obj_set_style_text_color(id(gpu_util_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(gpu_util_unit) != nullptr) lv_obj_add_flag(id(gpu_util_unit), LV_OBJ_FLAG_HIDDEN);
             } else {
               float v = id(gpu_util_pct_last);
               if (isnan(v)) v = 0.0f;
@@ -8764,6 +9383,7 @@ script:
               snprintf(buf, sizeof(buf), "%.0f", v);
               lv_label_set_text(id(gpu_util_value), buf);
               lv_obj_set_style_text_color(id(gpu_util_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
+              if (id(gpu_util_unit) != nullptr) { lv_obj_clear_flag(id(gpu_util_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(gpu_util_unit), id(gpu_util_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
             }
           }
 
@@ -8771,9 +9391,11 @@ script:
             if (disabled) {
               lv_label_set_text(id(gpu_temp_value), "--");
               lv_obj_set_style_text_color(id(gpu_temp_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(gpu_temp_unit) != nullptr) lv_obj_add_flag(id(gpu_temp_unit), LV_OBJ_FLAG_HIDDEN);
             } else if (unavailable) {
               lv_label_set_text(id(gpu_temp_value), "--");
               lv_obj_set_style_text_color(id(gpu_temp_value), lv_color_make(0x9C, 0xA3, 0xAF), 0);
+              if (id(gpu_temp_unit) != nullptr) lv_obj_add_flag(id(gpu_temp_unit), LV_OBJ_FLAG_HIDDEN);
             } else {
               float v = id(gpu_temp_c_last);
               if (isnan(v)) v = 0.0f;
@@ -8783,6 +9405,7 @@ script:
               snprintf(buf, sizeof(buf), "%.0f", v);
               lv_label_set_text(id(gpu_temp_value), buf);
               lv_obj_set_style_text_color(id(gpu_temp_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xF3, 0xE8, 0xFF), 0);
+              if (id(gpu_temp_unit) != nullptr) { lv_obj_clear_flag(id(gpu_temp_unit), LV_OBJ_FLAG_HIDDEN); lv_obj_align_to(id(gpu_temp_unit), id(gpu_temp_value), LV_ALIGN_OUT_RIGHT_MID, 2, 6); }
             }
           }
 
