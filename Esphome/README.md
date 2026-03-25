@@ -7,7 +7,7 @@ This folder contains ESPHome display configurations for ESP Host Bridge.
 - `host-key.yaml`  
   Reference firmware for the Waveshare ESP32-S3 Touch AMOLED 1.64 display module.
 
-- `Host-key-sq.yaml`  
+- `host-key-sq.yaml`  
   Scaled-down square-layout variant of `host-key.yaml`. It uses a left-aligned `302x280` active UI area on the `456x280` display, with the unused right-side area masked out. It is intended for a compact square-style layout, but it may still have some page-specific alignment issues depending on the screen and content being shown.
 
 ## Flashing
@@ -24,7 +24,9 @@ Flash over OTA:
 esphome run Esphome/host-key.yaml --device <device-ip>
 ```
 
-Replace the YAML path with `Esphome/Host-key-sq.yaml` if you want the square-layout variant.
+These YAMLs depend on the local font files in `Esphome/fonts/`. Do not move or copy the YAMLs without the `fonts` folder.
+
+Replace the YAML path with `Esphome/host-key-sq.yaml` if you want the square-layout variant.
 
 ### USB Flashing Note
 
