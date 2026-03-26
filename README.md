@@ -116,6 +116,7 @@ CPU TEMP
 
 ## Notes
 
+- The current UI and screensaver were reimplemented for this project rather than carried over from UniFi firmware. The design direction was informed by the original hardware/software aesthetic, but the ESPHome/LVGL implementation used here is specific to this project.
 - The configuration file is created automatically on first run.
 - The Web UI is the main way to manage settings.
 - If you enable direct Web UI protection and forget the password, remove or edit the generated `config.json` and start again.
