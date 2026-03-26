@@ -527,7 +527,26 @@ def create_app(
         <div class="hero-copy">
           <div class="hero-title">Bridge Status</div>
           <div class="hero-transport">Transport: USB CDC</div>
-          <div class="status hero-status" id="statusLine">Agent: <b>{'Running' if st['running'] else 'Stopped'}</b> | PID: <b>{st['pid'] or '--'}</b> | Started: <b>{fmt_ts(st['started_at'])}</b> | Last Exit Code: <b>{st['last_exit'] if st['last_exit'] is not None else '--'}</b></div>
+          <div class="hero-status" id="statusLine">
+            <div class="hero-status-grid">
+              <div class="hero-status-card">
+                <div class="hero-status-k">Agent</div>
+                <div class="hero-status-v" id="statusAgent">{'Running' if st['running'] else 'Stopped'}</div>
+              </div>
+              <div class="hero-status-card">
+                <div class="hero-status-k">PID</div>
+                <div class="hero-status-v" id="statusPid">{st['pid'] or '--'}</div>
+              </div>
+              <div class="hero-status-card">
+                <div class="hero-status-k">Started</div>
+                <div class="hero-status-v hero-status-v-sm" id="statusStarted">{fmt_ts(st['started_at'])}</div>
+              </div>
+              <div class="hero-status-card">
+                <div class="hero-status-k">Last Exit Code</div>
+                <div class="hero-status-v" id="statusLastExit">{st['last_exit'] if st['last_exit'] is not None else '--'}</div>
+              </div>
+            </div>
+          </div>
           <div class="hero-meta">
             <div class="status-pill" id="telemetryHealth">Telemetry: Waiting</div>
             <div class="status-pill" id="serialHealth">Serial: Unknown</div>

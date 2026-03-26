@@ -197,7 +197,14 @@ async function pollStatus() {
     const r = await fetch('/api/status');
     const s = await r.json();
     const started = s.started_at ? new Date(s.started_at * 1000).toLocaleString() : '--';
-    document.getElementById('statusLine').innerHTML = `Agent: <b>${s.running ? 'Running' : 'Stopped'}</b> | PID: <b>${s.pid ?? '--'}</b> | Started: <b>${started}</b> | Last Exit Code: <b>${s.last_exit ?? '--'}</b>`;
+    const agentEl = document.getElementById('statusAgent');
+    const pidEl = document.getElementById('statusPid');
+    const startedEl = document.getElementById('statusStarted');
+    const exitEl = document.getElementById('statusLastExit');
+    if (agentEl) agentEl.textContent = s.running ? 'Running' : 'Stopped';
+    if (pidEl) pidEl.textContent = s.pid ?? '--';
+    if (startedEl) startedEl.textContent = started;
+    if (exitEl) exitEl.textContent = s.last_exit ?? '--';
     lastStatusPayload = s;
     refreshWorkloadLabels(getWorkloadMode(s));
     updateTelemetryHealth(s);
