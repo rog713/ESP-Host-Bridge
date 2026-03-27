@@ -39,12 +39,6 @@ cd ESP-Host-Bridge
 python3 -m pip install .
 ```
 
-For local development, use editable install instead:
-
-```bash
-python3 -m pip install -e .
-```
-
 For Ubuntu bootstrap install:
 
 ```bash
