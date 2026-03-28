@@ -83,6 +83,8 @@ Unifi AI-Key inspired enclosure for Mini-PCs.
 
 [MakerWorld model](https://makerworld.com/en/models/2575571-pi-key#profileId-2840040)
 
+More models for other devices will be added on MakerWorld soon.
+
 [Parts list for the enclosure build](docs/bom.md)
 
 Example ESPHome display YAMLs live in `Esphome/`.
