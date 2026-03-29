@@ -2334,36 +2334,6 @@ lvgl:
                               auto call = id(screen_brightness).make_call();
                               call.set_value((float)v);
                               call.perform();
-              - obj:
-                  id: settings_1_edge_left
-                  x: 0
-                  y: 60
-                  width: 28
-                  height: 220
-                  bg_opa: TRANSP
-                  border_width: 0
-                  clickable: true
-                  on_short_click:
-                    - if:
-                        condition:
-                          lambda: 'return !id(gesture_capture_active);'
-                        then:
-                          - lvgl.page.show: Settings_2
-              - obj:
-                  id: settings_1_edge_right
-                  x: 428
-                  y: 60
-                  width: 28
-                  height: 220
-                  bg_opa: TRANSP
-                  border_width: 0
-                  clickable: true
-                  on_short_click:
-                    - if:
-                        condition:
-                          lambda: 'return !id(gesture_capture_active);'
-                        then:
-                          - lvgl.page.show: Settings_2
     - id: Settings_2
       bg_color: 0x001F67
       scrollbar_mode: "OFF"
@@ -2621,29 +2591,6 @@ lvgl:
                               text_font: arimo_25
                               bg_opa: TRANSP
                               text: "Restart"
-              - obj:
-                  id: settings_2_edge_left
-                  x: 0
-                  y: 60
-                  width: 28
-                  height: 220
-                  bg_opa: TRANSP
-                  border_width: 0
-                  clickable: true
-                  on_short_click:
-                    - lvgl.page.show: Settings_1
-              - obj:
-                  id: settings_2_edge_right
-                  x: 428
-                  y: 60
-                  width: 28
-                  height: 220
-                  bg_opa: TRANSP
-                  border_width: 0
-                  clickable: true
-                  on_short_click:
-                    - lvgl.page.show: Settings_1
-
       on_swipe_up:
         then:
           - if:
@@ -6977,10 +6924,6 @@ script:
           style(id(vms_modal_stop_btn));
           style(id(vms_modal_restart_btn));
           style(id(vms_modal_close_btn));
-          style(id(settings_1_edge_left));
-          style(id(settings_1_edge_right));
-          style(id(settings_2_edge_left));
-          style(id(settings_2_edge_right));
 
           style_icon(id(docker_btn_img));
           style_icon(id(info_btn_img));
@@ -9563,11 +9506,7 @@ interval:
                     id(settings_btn) != nullptr &&
                     id(cntr_btn) != nullptr &&
                     id(shutdown_btn) != nullptr &&
-                    id(restart_btn) != nullptr &&
-                    id(settings_1_edge_left) != nullptr &&
-                    id(settings_1_edge_right) != nullptr &&
-                    id(settings_2_edge_left) != nullptr &&
-                    id(settings_2_edge_right) != nullptr;
+                    id(restart_btn) != nullptr;
 
   - interval: 80ms
     then:
