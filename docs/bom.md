@@ -20,7 +20,13 @@
 ## Optional for Raspberry Pi 5 Enclosure
 
 1. Waveshare Micro HDMI to HDMI Multifunctional Adapter  
-   https://www.amazon.com/dp/B0D5VBSKF4?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_21
+   https://www.waveshare.com/pi5-connector-adapter.htm
 
 2. 40x10mm Fan  
    https://www.amazon.com/dp/B07DXS86G7?ref_=ppx_hzsearch_conn_dt_b_fed_asin_title_1&th=1
+
+3. PoE / NVMe HAT  
+   https://www.waveshare.com/poe-m.2-hat-plus-c.htm?srsltid=AfmBOoqT61q81V9N64oQpteHmgmLCzDL3exrDHRF5K_novBFt-L6hs94
+
+4. Raspberry Pi Active Cooler  
+   https://www.raspberrypi.com/products/active-cooler/
