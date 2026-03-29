@@ -113,7 +113,7 @@ Example:
 ```yaml
 wifi_ssid: "YOUR_WIFI_NAME"
 wifi_password: "YOUR_WIFI_PASSWORD"
-esp_host_bridge_api_key: "YOUR_BASE64_API_KEY"
+esp_host_bridge_api_key: "YOUR_API_KEY"
 ```
 
 The `secrets.yaml` file should live in the same ESPHome working directory you use when running `esphome`.
