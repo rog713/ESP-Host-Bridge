@@ -244,8 +244,17 @@ fi
 run "systemctl daemon-reload"
 
 if [[ "${ENABLE_SERVICE}" == "1" ]]; then
-  log "enabling and starting ${SERVICE_NAME}.service"
-  run "systemctl enable --now ${SERVICE_NAME}.service"
+  if [[ "${DRY_RUN}" == "1" ]]; then
+    log "enabling ${SERVICE_NAME}.service and restarting it if already running"
+    printf '[dry-run] if systemctl is-active --quiet %s.service; then systemctl enable %s.service && systemctl restart %s.service; else systemctl enable --now %s.service; fi\n' "${SERVICE_NAME}" "${SERVICE_NAME}" "${SERVICE_NAME}" "${SERVICE_NAME}"
+  elif systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+    log "enabling and restarting ${SERVICE_NAME}.service"
+    run "systemctl enable ${SERVICE_NAME}.service"
+    run "systemctl restart ${SERVICE_NAME}.service"
+  else
+    log "enabling and starting ${SERVICE_NAME}.service"
+    run "systemctl enable --now ${SERVICE_NAME}.service"
+  fi
 else
   log "service file installed but not started (ESP_HOST_BRIDGE_ENABLE_SERVICE=0)"
 fi

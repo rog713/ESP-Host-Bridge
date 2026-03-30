@@ -45,6 +45,8 @@ For Ubuntu bootstrap install:
 curl -fsSL https://raw.githubusercontent.com/rog713/ESP-Host-Bridge/main/install-ubuntu.sh | sudo bash
 ```
 
+Rerunning the installer on Ubuntu upgrades the files in place and restarts the service if it is already running.
+
 To install into your home directory instead of `/opt/esp-host-bridge`:
 
 ```bash
