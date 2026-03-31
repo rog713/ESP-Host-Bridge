@@ -6,6 +6,8 @@ import secrets
 from pathlib import Path
 from typing import Any, Dict
 
+from .integrations import CleanerSet, get_registered_config_fields, integration_cfg_to_agent_args, validate_integration_cfg
+
 
 def default_webui_config_path() -> Path:
     env = os.environ.get("WEBUI_CONFIG", "").strip()
@@ -14,19 +16,12 @@ def default_webui_config_path() -> Path:
     return Path(__file__).resolve().with_name("config.json")
 
 def webui_default_cfg() -> Dict[str, Any]:
-    return {
+    cfg = {
         "serial_port": "",
         "baud": 115200,
         "interval": 1.0,
         "timeout": 2.0,
         "iface": "",
-        "docker_socket": "/var/run/docker.sock",
-        "docker_polling_enabled": True,
-        "docker_interval": 2.0,
-        "virsh_binary": "virsh",
-        "virsh_uri": "",
-        "vm_polling_enabled": True,
-        "vm_interval": 5.0,
         "gpu_polling_enabled": True,
         "disk_device": "",
         "disk_temp_device": "",
@@ -40,6 +35,28 @@ def webui_default_cfg() -> Dict[str, Any]:
         "webui_password_hash": "",
         "webui_session_secret": "",
     }
+    for field in get_registered_config_fields():
+        cfg[field.name] = field.default
+    return cfg
+
+
+def _clean_value_by_kind(kind: str, value: Any, default: Any) -> Any:
+    if kind == "bool":
+        return _clean_bool(value, bool(default))
+    if kind == "int":
+        return _clean_int(value, int(default))
+    if kind == "float":
+        return _clean_float(value, float(default))
+    return _clean_str(value, str(default))
+
+
+def _cleaners() -> CleanerSet:
+    return CleanerSet(
+        clean_str=_clean_str,
+        clean_int=_clean_int,
+        clean_float=_clean_float,
+        clean_bool=_clean_bool,
+    )
 
 def _clean_str(v: Any, default: str = "") -> str:
     if v is None:
@@ -77,13 +94,6 @@ def normalize_cfg(raw: Dict[str, Any]) -> Dict[str, Any]:
     cfg["interval"] = _clean_float(raw.get("interval", cfg["interval"]), cfg["interval"])
     cfg["timeout"] = _clean_float(raw.get("timeout", cfg["timeout"]), cfg["timeout"])
     cfg["iface"] = _clean_str(raw.get("iface", cfg["iface"]), cfg["iface"])
-    cfg["docker_socket"] = _clean_str(raw.get("docker_socket", cfg["docker_socket"]), cfg["docker_socket"])
-    cfg["docker_polling_enabled"] = _clean_bool(raw.get("docker_polling_enabled", cfg["docker_polling_enabled"]), cfg["docker_polling_enabled"])
-    cfg["docker_interval"] = _clean_float(raw.get("docker_interval", cfg["docker_interval"]), cfg["docker_interval"])
-    cfg["virsh_binary"] = _clean_str(raw.get("virsh_binary", cfg["virsh_binary"]), cfg["virsh_binary"])
-    cfg["virsh_uri"] = _clean_str(raw.get("virsh_uri", cfg["virsh_uri"]), cfg["virsh_uri"])
-    cfg["vm_polling_enabled"] = _clean_bool(raw.get("vm_polling_enabled", cfg["vm_polling_enabled"]), cfg["vm_polling_enabled"])
-    cfg["vm_interval"] = _clean_float(raw.get("vm_interval", cfg["vm_interval"]), cfg["vm_interval"])
     cfg["gpu_polling_enabled"] = _clean_bool(raw.get("gpu_polling_enabled", cfg["gpu_polling_enabled"]), cfg["gpu_polling_enabled"])
     cfg["disk_device"] = _clean_str(raw.get("disk_device", cfg["disk_device"]), cfg["disk_device"])
     cfg["disk_temp_device"] = _clean_str(raw.get("disk_temp_device", cfg["disk_temp_device"]), cfg["disk_temp_device"])
@@ -96,6 +106,8 @@ def normalize_cfg(raw: Dict[str, Any]) -> Dict[str, Any]:
     cfg["webui_auth_enabled"] = _clean_bool(raw.get("webui_auth_enabled", cfg["webui_auth_enabled"]), cfg["webui_auth_enabled"])
     cfg["webui_password_hash"] = _clean_str(raw.get("webui_password_hash", cfg["webui_password_hash"]), cfg["webui_password_hash"])
     cfg["webui_session_secret"] = _clean_str(raw.get("webui_session_secret", cfg["webui_session_secret"]), cfg["webui_session_secret"])
+    for field in get_registered_config_fields():
+        cfg[field.name] = _clean_value_by_kind(field.kind, raw.get(field.name, cfg[field.name]), cfg[field.name])
     return cfg
 
 def ensure_webui_session_secret(cfg: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
@@ -113,12 +125,9 @@ def validate_cfg(cfg: Dict[str, Any]) -> tuple[bool, str]:
         return False, "interval must be > 0"
     if _clean_float(cfg.get("timeout"), 0.0) <= 0.0:
         return False, "timeout must be > 0"
-    if _clean_float(cfg.get("docker_interval"), 0.0) < 0.0:
-        return False, "docker_interval must be >= 0"
-    if _clean_float(cfg.get("vm_interval"), 0.0) < 0.0:
-        return False, "vm_interval must be >= 0"
-    if _clean_bool(cfg.get("docker_polling_enabled"), True) and _clean_float(cfg.get("docker_interval"), 0.0) > 0.0 and not _clean_str(cfg.get("docker_socket")):
-        return False, "docker_socket is required when docker polling is enabled"
+    errors = validate_integration_cfg(cfg, _cleaners())
+    if errors:
+        return False, errors[0]
     return True, "ok"
 
 def load_cfg(path: Path) -> Dict[str, Any]:
@@ -146,14 +155,6 @@ def cfg_to_agent_args(cfg: Dict[str, Any]) -> list[str]:
         str(_clean_float(cfg.get("interval"), 1.0)),
         "--timeout",
         str(_clean_float(cfg.get("timeout"), 2.0)),
-        "--docker-socket",
-        _clean_str(cfg.get("docker_socket"), "/var/run/docker.sock"),
-        "--docker-interval",
-        str(_clean_float(cfg.get("docker_interval"), 2.0)),
-        "--virsh-binary",
-        _clean_str(cfg.get("virsh_binary"), "virsh"),
-        "--vm-interval",
-        str(_clean_float(cfg.get("vm_interval"), 5.0)),
     ]
     for key, flag in [
         ("serial_port", "--serial-port"),
@@ -167,10 +168,7 @@ def cfg_to_agent_args(cfg: Dict[str, Any]) -> list[str]:
         val = _clean_str(cfg.get(key), "")
         if val:
             argv += [flag, val]
-    if not _clean_bool(cfg.get("docker_polling_enabled"), True):
-        argv += ["--disable-docker-polling"]
-    if not _clean_bool(cfg.get("vm_polling_enabled"), True):
-        argv += ["--disable-vm-polling"]
+    argv += integration_cfg_to_agent_args(cfg, _cleaners())
     if not _clean_bool(cfg.get("gpu_polling_enabled"), True):
         argv += ["--disable-gpu-polling"]
     if _clean_bool(cfg.get("allow_host_cmds"), False):
@@ -197,13 +195,6 @@ def cfg_from_form(form: Any) -> Dict[str, Any]:
             "interval": form.get("interval"),
             "timeout": form.get("timeout"),
             "iface": form.get("iface"),
-            "docker_socket": form.get("docker_socket"),
-            "docker_polling_enabled": _has_checkbox("docker_polling_enabled"),
-            "docker_interval": form.get("docker_interval"),
-            "virsh_binary": form.get("virsh_binary"),
-            "virsh_uri": form.get("virsh_uri"),
-            "vm_polling_enabled": _has_checkbox("vm_polling_enabled"),
-            "vm_interval": form.get("vm_interval"),
             "gpu_polling_enabled": _has_checkbox("gpu_polling_enabled"),
             "disk_device": form.get("disk_device"),
             "disk_temp_device": form.get("disk_temp_device"),
@@ -214,6 +205,10 @@ def cfg_from_form(form: Any) -> Dict[str, Any]:
             "shutdown_cmd": form.get("shutdown_cmd"),
             "restart_cmd": form.get("restart_cmd"),
             "webui_auth_enabled": _has_checkbox("webui_auth_enabled"),
+            **{
+                field.name: (_has_checkbox(field.name) if field.checkbox else form.get(field.name))
+                for field in get_registered_config_fields()
+            },
         }
     )
 

@@ -6,7 +6,6 @@ import atexit
 import copy
 import difflib
 import html
-import http.client
 import json
 import logging
 import os
@@ -22,7 +21,6 @@ import sys
 import threading
 import time
 import asyncio
-import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
@@ -56,8 +54,6 @@ RX_BUFFER_KEEP_BYTES = 1024
 DISK_TEMP_REFRESH_SECONDS = 15.0
 DISK_USAGE_REFRESH_SECONDS = 10.0
 SLOW_SENSOR_REFRESH_SECONDS = 5.0
-DOCKER_WARN_INTERVAL_SECONDS = 30.0
-VIRSH_WARN_INTERVAL_SECONDS = 30.0
 MAX_LOG_LINES = 800
 METRIC_HISTORY_POINTS = 90
 WEBUI_DEFAULT_PORT = 8654
@@ -133,8 +129,6 @@ class RuntimeState:
     prev_rx: Optional[float] = None
     prev_tx: Optional[float] = None
     prev_t: Optional[float] = None
-    last_docker_warn_ts: float = 0.0
-    last_virsh_warn_ts: float = 0.0
     disk_temp_c: float = 0.0
     disk_temp_available: bool = False
     last_disk_temp_ts: float = 0.0
@@ -152,22 +146,13 @@ class RuntimeState:
     prev_disk_write_b: Optional[float] = None
     rx_buf: str = ""
     tx_frame_index: int = 0
-    cached_docker: list[dict[str, Any]] = field(default_factory=list)
-    cached_docker_counts: Dict[str, int] = field(
-        default_factory=lambda: {"running": 0, "stopped": 0, "unhealthy": 0}
-    )
-    last_docker_refresh_ts: float = 0.0
-    cached_vms: list[dict[str, Any]] = field(default_factory=list)
-    cached_vm_counts: Dict[str, int] = field(
-        default_factory=lambda: {"running": 0, "stopped": 0, "paused": 0, "other": 0}
-    )
-    last_vm_refresh_ts: float = 0.0
     host_name_sent: bool = False
     ha_token_present: bool = False
     ha_addons_api_ok: Optional[bool] = None
     ha_integrations_api_ok: Optional[bool] = None
     display_sleeping: bool = False
     display_refresh_pending: bool = False
+    integration_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 def safe_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -242,61 +227,17 @@ def _humanize_home_assistant_slug(value: Any) -> str:
     return " ".join(part.upper() if len(part) <= 4 else part.capitalize() for part in parts)
 
 
-def compact_containers(docker_data: list[dict[str, Any]], max_items: int = 10) -> str:
-    out: list[str] = []
-    for c in docker_data[:max_items]:
-        if not isinstance(c, dict):
-            continue
-        raw_name = c.get("name") or c.get("Names") or "container"
-        if isinstance(raw_name, list):
-            name = str(raw_name[0] if raw_name else "container")
-        else:
-            name = str(raw_name)
-        name = name.lstrip("/").replace(",", "_").replace(";", "_")
-        if len(name) > 24:
-            name = name[:24]
-        status_raw = str(c.get("status") or c.get("State") or "").lower()
-        state = "up" if any(x in status_raw for x in ["running", "up", "healthy"]) else "down"
-        out.append(f"{name}|{state}")
-    return ";".join(out)
-
-
-def _sanitize_compact_token(v: Any, fallback: str = "") -> str:
-    s = str(v or fallback).strip()
-    if not s:
-        s = fallback
-    return s.replace(",", "_").replace(";", "_").replace("|", "_")
-
-
 def classify_vm_state(state_raw: Any) -> tuple[str, str]:
-    s = str(state_raw or "").strip().lower()
-    if not s:
+    text = str(state_raw or "").strip().lower()
+    if not text:
         return "stopped", "Stopped"
-    if any(x in s for x in ("running", "idle", "in shutdown", "shutdown", "no state")):
+    if any(token in text for token in ("running", "idle", "in shutdown", "shutdown", "no state")):
         return "running", "Running"
-    if any(x in s for x in ("paused", "pmsuspended", "suspended", "blocked")):
+    if any(token in text for token in ("paused", "pmsuspended", "suspended", "blocked")):
         return "paused", "Paused"
-    if any(x in s for x in ("shut off", "shutoff", "crashed")):
+    if any(token in text for token in ("shut off", "shutoff", "crashed")):
         return "stopped", "Stopped"
-    return "other", s.title()
-
-
-def compact_virtual_machines(vm_data: list[dict[str, Any]], max_items: int = 10) -> str:
-    out: list[str] = []
-    for vm in vm_data[:max_items]:
-        if not isinstance(vm, dict):
-            continue
-        name = _sanitize_compact_token(vm.get("name"), "vm")
-        if len(name) > 24:
-            name = name[:24]
-        state_key, state_label = classify_vm_state(vm.get("state"))
-        vcpus = max(0, safe_int(vm.get("vcpus"), 0) or 0)
-        mem_mib = max(0, safe_int(vm.get("max_mem_mib"), 0) or 0)
-        out.append(
-            f"{name}|{_sanitize_compact_token(state_key, 'stopped')}|"
-            f"{vcpus}|{mem_mib}|{_sanitize_compact_token(state_label, 'Stopped')}"
-        )
-    return ";".join(out) if out else "-"
+    return "other", text.title()
 
 
 def _supervisor_request_json(path: str, timeout: float, method: str = "GET", payload: Any = None) -> Any:
@@ -321,27 +262,19 @@ def _supervisor_request_json(path: str, timeout: float, method: str = "GET", pay
 
 
 from .config import cfg_to_agent_args, load_cfg, validate_cfg
+from .integrations import CommandContext, PollContext, dispatch_integration_command, poll_integrations
 from .metrics import (
-    _run_command_capture,
-    _virsh_uri_candidates,
     detect_hardware_choices,
-    docker_summary_counts,
     get_cpu_percent,
     get_cpu_temp_c,
     get_disk_bytes_local,
     get_disk_temp_c,
     get_disk_usage_pct,
-    get_docker_containers_from_engine,
     get_fan_rpm,
     get_gpu_metrics,
-    get_home_assistant_addons,
-    get_home_assistant_integrations,
     get_mem_percent,
     get_net_bytes_local,
     get_uptime_seconds,
-    get_virtual_machines_from_virsh,
-    normalize_docker_data,
-    vm_summary_counts,
 )
 from .serial import serial_io_bypassed, try_open_serial_once
 
@@ -463,140 +396,6 @@ def execute_home_assistant_host_power_command(cmd: str, timeout: float) -> bool:
         logging.warning("home assistant host power command failed for %s (%s)", cmd_s, e)
     return True
 
-def execute_docker_command(cmd: str, socket_path: str, timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("docker_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-    elif cmd_l.startswith("docker_stop:"):
-        action = "stop"
-        target = cmd_s.split(":", 1)[1].strip()
-    else:
-        return False
-
-    if not target:
-        logging.warning("ignoring docker command with empty target (CMD=%s)", cmd_s)
-        return True
-
-    class UnixHTTPConnection(http.client.HTTPConnection):
-        def __init__(self, unix_socket_path: str, timeout_s: float):
-            super().__init__("localhost", timeout=timeout_s)
-            self.unix_socket_path = unix_socket_path
-
-        def connect(self) -> None:
-            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.settimeout(self.timeout)
-            self.sock.connect(self.unix_socket_path)
-
-    encoded = urllib.parse.quote(target, safe="")
-    path = f"/containers/{encoded}/{action}" + ("?t=10" if action == "stop" else "")
-    try:
-        conn = UnixHTTPConnection(socket_path, timeout)
-        conn.request("POST", path)
-        resp = conn.getresponse()
-        body = resp.read()
-        conn.close()
-        if resp.status in (204, 304):
-            logging.info("docker %s requested for %s (HTTP %s)", action, target, resp.status)
-        else:
-            logging.warning(
-                "docker %s failed for %s via %s (HTTP %s: %r)",
-                action,
-                target,
-                socket_path,
-                resp.status,
-                body[:200],
-            )
-    except Exception as e:
-        logging.warning("docker %s failed for %s via %s (%s)", action, target, socket_path, e)
-    return True
-
-def execute_home_assistant_addon_command(cmd: str, timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("docker_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-    elif cmd_l.startswith("docker_stop:"):
-        action = "stop"
-        target = cmd_s.split(":", 1)[1].strip()
-    else:
-        return False
-    if not target:
-        logging.warning("ignoring add-on command with empty target (CMD=%s)", cmd_s)
-        return True
-    addons = get_home_assistant_addons(timeout)
-    target_l = target.lower()
-    match = next(
-        (
-            row for row in addons
-            if str(row.get("name") or "") == target
-            or str(row.get("slug") or "") == target
-            or str(row.get("name") or "").lower().startswith(target_l)
-            or str(row.get("slug") or "").lower().startswith(target_l)
-        ),
-        None,
-    )
-    if not match:
-        logging.warning("home assistant add-on command target not found (%s)", target)
-        return True
-    slug = str(match.get("slug") or "").strip()
-    if not slug:
-        logging.warning("home assistant add-on slug missing for %s", target)
-        return True
-    try:
-        _supervisor_request_json(f"/addons/{urllib.parse.quote(slug, safe='')}/{action}", timeout=timeout, method="POST", payload={})
-        logging.info("home assistant add-on %s requested for %s", action, target)
-    except Exception as e:
-        logging.warning("home assistant add-on %s failed for %s (%s)", action, target, e)
-    return True
-
-def execute_virsh_command(cmd: str, virsh_binary: str, virsh_uri: Optional[str], timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("vm_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("start", target)
-    elif cmd_l.startswith("vm_force_stop:"):
-        action = "destroy"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("destroy", target)
-    elif cmd_l.startswith("vm_stop:"):
-        action = "shutdown"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("shutdown", target)
-    elif cmd_l.startswith("vm_restart:"):
-        action = "reboot"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("reboot", target)
-    else:
-        return False
-
-    if not target:
-        logging.warning("ignoring VM command with empty target (CMD=%s)", cmd_s)
-        return True
-
-    errors: list[str] = []
-    for candidate_uri in _virsh_uri_candidates(virsh_uri):
-        argv = _virsh_cmd(virsh_binary, candidate_uri, *parts)
-        try:
-            p = _run_command_capture(argv, timeout)
-            if p.returncode == 0:
-                logging.info("vm %s requested for %s", action, target)
-                return True
-            errors.append((p.stderr or p.stdout or "").strip()[:200])
-        except Exception as e:
-            errors.append(str(e))
-    logging.warning(
-        "vm %s failed for %s (%s)",
-        action,
-        target,
-        "; ".join([e for e in errors if e][:3]) or "unknown error",
-    )
-    return True
-
 def command_to_power_state(cmd: str) -> Optional[str]:
     cmd_l = (cmd or "").strip().lower()
     if cmd_l == "shutdown":
@@ -667,11 +466,20 @@ def process_usb_commands(
         if handle_display_state_command(cmd, state):
             continue
         if allow_host_cmds:
-            if homeassistant_mode and execute_home_assistant_addon_command(cmd, timeout):
-                continue
-            if execute_docker_command(cmd, docker_socket, timeout):
-                continue
-            if execute_virsh_command(cmd, virsh_binary, virsh_uri, timeout):
+            if dispatch_integration_command(
+                cmd,
+                CommandContext(
+                    args=argparse.Namespace(
+                        docker_socket=docker_socket,
+                        virsh_binary=virsh_binary,
+                        virsh_uri=virsh_uri,
+                    ),
+                    state=state,
+                    timeout=timeout,
+                    homeassistant_mode=homeassistant_mode,
+                    supervisor_request_json=_supervisor_request_json,
+                ),
+            ):
                 continue
             power_state = command_to_power_state(cmd)
             if power_state:
@@ -738,75 +546,28 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     fan_available = bool(getattr(state, "fan_available", False))
     gpu_available = bool(getattr(state, "gpu_available", False))
 
-    docker_enabled = not bool(getattr(args, "disable_docker_polling", False))
-    docker_interval = max(0.0, float(getattr(args, "docker_interval", 2.0) or 0.0))
-    if docker_enabled and docker_interval > 0.0 and (not state.last_docker_refresh_ts or (now - state.last_docker_refresh_ts) >= docker_interval):
-        try:
-            if homeassistant_mode:
-                docker = get_home_assistant_addons(timeout=args.timeout)
-            else:
-                docker = get_docker_containers_from_engine(args.docker_socket, timeout=args.timeout)
-            state.ha_addons_api_ok = True if homeassistant_mode else None
-        except Exception as e:
-            docker = []
-            state.ha_addons_api_ok = False if homeassistant_mode else None
-            if (now - state.last_docker_warn_ts) >= DOCKER_WARN_INTERVAL_SECONDS:
-                if homeassistant_mode:
-                    logging.warning("Home Assistant add-on API unavailable; continuing without add-on data (%s)", e)
-                else:
-                    logging.warning(
-                        "Docker API unavailable via %s; continuing without docker data (%s)",
-                        args.docker_socket,
-                        e,
-                    )
-                state.last_docker_warn_ts = now
-        docker = normalize_docker_data(docker)
-        state.cached_docker = docker
-        state.cached_docker_counts = docker_summary_counts(docker)
-        state.last_docker_refresh_ts = now
-    if docker_enabled:
-        docker = list(state.cached_docker)
-        docker_counts = dict(state.cached_docker_counts)
-    else:
-        docker = []
-        docker_counts = {"running": 0, "stopped": 0, "unhealthy": 0}
-        if homeassistant_mode:
-            state.ha_addons_api_ok = None
+    integration_status = poll_integrations(
+        PollContext(
+            args=args,
+            state=state,
+            now=now,
+            homeassistant_mode=homeassistant_mode,
+        )
+    )
 
-    vm_enabled = not bool(getattr(args, "disable_vm_polling", False))
-    vm_interval = max(0.0, float(getattr(args, "vm_interval", 5.0) or 0.0))
-    if vm_enabled and vm_interval > 0.0 and (not state.last_vm_refresh_ts or (now - state.last_vm_refresh_ts) >= vm_interval):
-        try:
-            if homeassistant_mode:
-                vms = get_home_assistant_integrations(timeout=args.timeout)
-            else:
-                vms = get_virtual_machines_from_virsh(args.virsh_binary, args.virsh_uri, timeout=args.timeout)
-            state.ha_integrations_api_ok = True if homeassistant_mode else None
-        except Exception as e:
-            vms = []
-            state.ha_integrations_api_ok = False if homeassistant_mode else None
-            if (now - state.last_virsh_warn_ts) >= VIRSH_WARN_INTERVAL_SECONDS:
-                if homeassistant_mode:
-                    logging.warning("Home Assistant integration registry unavailable; continuing without integration data (%s)", e)
-                else:
-                    logging.warning(
-                        "virsh unavailable via %s%s; continuing without VM data (%s)",
-                        args.virsh_binary,
-                        f" -c {args.virsh_uri}" if args.virsh_uri else "",
-                        e,
-                    )
-                state.last_virsh_warn_ts = now
-        state.cached_vms = vms
-        state.cached_vm_counts = vm_summary_counts(vms)
-        state.last_vm_refresh_ts = now
-    if vm_enabled:
-        vms = list(state.cached_vms)
-        vm_counts = dict(state.cached_vm_counts)
-    else:
-        vms = []
-        vm_counts = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
-        if homeassistant_mode:
-            state.ha_integrations_api_ok = None
+    docker_status = integration_status.get("docker") or {}
+    docker_enabled = bool(docker_status.get("enabled", not bool(getattr(args, "disable_docker_polling", False))))
+    docker = list(docker_status.get("items") or [])
+    docker_counts = dict(docker_status.get("counts") or {"running": 0, "stopped": 0, "unhealthy": 0})
+    docker_compact = str(docker_status.get("compact") or "")
+    state.ha_addons_api_ok = docker_status.get("api_ok")
+
+    vm_status = integration_status.get("vms") or {}
+    vm_enabled = bool(vm_status.get("enabled", not bool(getattr(args, "disable_vm_polling", False))))
+    vms = list(vm_status.get("items") or [])
+    vm_counts = dict(vm_status.get("counts") or {"running": 0, "stopped": 0, "paused": 0, "other": 0})
+    vm_compact = str(vm_status.get("compact") or "-")
+    state.ha_integrations_api_ok = vm_status.get("api_ok")
 
     rx_bytes, tx_bytes, state.active_iface = get_net_bytes_local(args.iface, state.active_iface)
     rx_kbps = 0.0
@@ -830,8 +591,6 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     state.prev_disk_read_b, state.prev_disk_write_b = disk_read_b, disk_write_b
     state.prev_rx, state.prev_tx, state.prev_t = rx_bytes, tx_bytes, now
 
-    docker_compact = compact_containers(docker)
-    vm_compact = compact_virtual_machines(vms)
     ha_docker_api = -1 if state.ha_addons_api_ok is None else (1 if state.ha_addons_api_ok else 0)
     ha_vms_api = -1 if state.ha_integrations_api_ok is None else (1 if state.ha_integrations_api_ok else 0)
 
