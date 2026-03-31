@@ -119,7 +119,7 @@ substitutions:
   MODAL_BODY_H: "96"
   MODAL_ACTION_BTN_W: "118"
   MODAL_ACTION_BTN_H: "44"
-  DISPLAY_CFG_VERSION: "2026.03.25.12-302"
+  DISPLAY_CFG_VERSION: "2026.03.31.2-302"
   PAGE_HOME: "0"
   PAGE_DOCKER: "1"
   PAGE_SETTINGS_1: "2"
@@ -250,7 +250,7 @@ globals:
   - id: net_scale_kbps
     type: uint32_t
     restore_value: no
-    initial_value: '10000'
+    initial_value: '8000'
 
   - id: net_scale_last_adjust_ms
     type: uint32_t
@@ -4655,7 +4655,7 @@ lvgl:
                                     text_color: 0xD1D5DB
                                     text_font: arimo_14
                                     bg_opa: TRANSP
-                                    text: "Mb/s"
+                                    text: "MB/s"
 
                                 - obj:
                                     id: info_net_tx_dot
@@ -4692,7 +4692,7 @@ lvgl:
                                     text_color: 0xD1D5DB
                                     text_font: arimo_14
                                     bg_opa: TRANSP
-                                    text: "Mb/s"
+                                    text: "MB/s"
 
                           - obj:
                               id: info_net_chart_box
@@ -4743,7 +4743,7 @@ lvgl:
                                     pad_top: 3
                                     pad_bottom: 3
                                     radius: 8
-                                    text: "10 Mb/s"
+                                    text: "1 MB/s"
     - id: VMS
       bg_color: 0x001F67
       scrollbar_mode: "OFF"
@@ -8371,8 +8371,8 @@ script:
                 (uint32_t)(now - id(host_serial_last_ms)) > 5000U));
 
           const uint32_t buckets[] = {
-            1000U, 2500U, 5000U, 10000U, 25000U, 50000U,
-            100000U, 250000U, 500000U, 1000000U, 2500000U, 5000000U
+            2000U, 4000U, 8000U, 20000U, 40000U, 80000U,
+            200000U, 400000U, 800000U, 1000000U, 2000000U, 2500000U, 5000000U
           };
           auto next_bucket = [&](uint32_t v) -> uint32_t {
             for (uint32_t b : buckets) {
@@ -8382,12 +8382,15 @@ script:
           };
           auto format_scale = [&](uint32_t kbps) -> std::string {
             char buf[24];
-            if (kbps >= 1000000U) {
-              if ((kbps % 1000000U) == 0U) snprintf(buf, sizeof(buf), "%u Gb/s", (unsigned) (kbps / 1000000U));
-              else snprintf(buf, sizeof(buf), "%.1f Gb/s", kbps / 1000000.0f);
+            const float MBps = kbps / 8000.0f;
+            if (MBps >= 1000.0f) {
+              const float GBps = MBps / 1000.0f;
+              if (fabsf(GBps - roundf(GBps)) < 0.05f) snprintf(buf, sizeof(buf), "%.0f GB/s", roundf(GBps));
+              else snprintf(buf, sizeof(buf), "%.1f GB/s", GBps);
             } else {
-              if ((kbps % 1000U) == 0U) snprintf(buf, sizeof(buf), "%u Mb/s", (unsigned) (kbps / 1000U));
-              else snprintf(buf, sizeof(buf), "%.1f Mb/s", kbps / 1000.0f);
+              if (MBps >= 100.0f || fabsf(MBps - roundf(MBps)) < 0.05f) snprintf(buf, sizeof(buf), "%.0f MB/s", roundf(MBps));
+              else if (MBps >= 10.0f) snprintf(buf, sizeof(buf), "%.1f MB/s", MBps);
+              else snprintf(buf, sizeof(buf), "%.2f MB/s", MBps);
             }
             return std::string(buf);
           };
@@ -8401,10 +8404,11 @@ script:
             peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_rx_kbps_last)) + 0.5f));
             peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_tx_kbps_last)) + 0.5f));
           }
-          const uint32_t target_maxv = next_bucket(std::max(peak, 1U));
+          const uint32_t target_peak = peak == 0U ? 1U : peak;
+          const uint32_t target_maxv = next_bucket(target_peak);
           uint32_t maxv = id(net_scale_kbps);
           if (maxv < buckets[0] || maxv > buckets[(sizeof(buckets) / sizeof(buckets[0])) - 1]) {
-            maxv = buckets[3];
+            maxv = buckets[2];
           }
           if (have_data) {
             if (target_maxv > maxv) {
@@ -8413,9 +8417,9 @@ script:
               id(net_scale_last_adjust_ms) = now;
             } else if (target_maxv < maxv) {
               const bool shrink_ok =
-                  peak <= (uint32_t) ((float) maxv * 0.60f) &&
+                  peak <= (uint32_t) ((float) maxv * 0.45f) &&
                   (id(net_scale_last_adjust_ms) == 0U ||
-                   (uint32_t) (now - id(net_scale_last_adjust_ms)) > 15000U);
+                   (uint32_t) (now - id(net_scale_last_adjust_ms)) > 30000U);
               if (shrink_ok) {
                 maxv = target_maxv;
                 id(net_scale_kbps) = maxv;
@@ -8459,11 +8463,11 @@ script:
             lv_obj_set_style_text_color(id(info_net_rx_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
             if (have_data && !stale) {
               const float kbps = id(net_rx_kbps_last);
-              const float Mbps = kbps / 1000.0f;  // kbps (kilobits/s) -> Mb/s (megabits/s)
+              const float MBps = kbps / 8000.0f;  // kbps (kilobits/s) -> MB/s (megabytes/s)
               char buf[24];
-              if (Mbps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", Mbps);
-              else if (Mbps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", Mbps);
-              else snprintf(buf, sizeof(buf), "%.0f", Mbps);
+              if (MBps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", MBps);
+              else if (MBps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", MBps);
+              else snprintf(buf, sizeof(buf), "%.0f", MBps);
               lv_label_set_text(id(info_net_rx_value), buf);
             } else if (!have_data) {
               lv_label_set_text(id(info_net_rx_value), "--");
@@ -8475,11 +8479,11 @@ script:
             lv_obj_set_style_text_color(id(info_net_tx_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xF3, 0xE8, 0xFF), 0);
             if (have_data && !stale) {
               const float kbps = id(net_tx_kbps_last);
-              const float Mbps = kbps / 1000.0f;
+              const float MBps = kbps / 8000.0f;
               char buf[24];
-              if (Mbps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", Mbps);
-              else if (Mbps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", Mbps);
-              else snprintf(buf, sizeof(buf), "%.0f", Mbps);
+              if (MBps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", MBps);
+              else if (MBps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", MBps);
+              else snprintf(buf, sizeof(buf), "%.0f", MBps);
               lv_label_set_text(id(info_net_tx_value), buf);
             } else if (!have_data) {
               lv_label_set_text(id(info_net_tx_value), "--");
