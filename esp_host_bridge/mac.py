@@ -23,6 +23,7 @@ if __package__ in {None, ""}:
     from esp_host_bridge import metrics as metrics_mod  # type: ignore
     from esp_host_bridge import runtime as hm  # type: ignore
     from esp_host_bridge import serial as serial_mod  # type: ignore
+    from esp_host_bridge.integrations import host as host_integration_mod  # type: ignore
     from esp_host_bridge.integrations import vms as vms_integration_mod  # type: ignore
 else:
     from . import cli as app_cli
@@ -31,6 +32,7 @@ else:
     from . import metrics as metrics_mod
     from . import runtime as hm
     from . import serial as serial_mod
+    from .integrations import host as host_integration_mod
     from .integrations import vms as vms_integration_mod
 
 _ORIG_GET_CPU_TEMP_C = metrics_mod.get_cpu_temp_c
@@ -393,10 +395,13 @@ def mac_list_disk_device_choices() -> list[str]:
 def _apply_mac_overrides() -> None:
     metrics_mod.get_cpu_temp_c = mac_get_cpu_temp_c  # type: ignore[assignment]
     hm.get_cpu_temp_c = mac_get_cpu_temp_c  # type: ignore[assignment]
+    host_integration_mod.get_cpu_temp_c = mac_get_cpu_temp_c  # type: ignore[assignment]
     metrics_mod.get_fan_rpm = mac_get_fan_rpm  # type: ignore[assignment]
     hm.get_fan_rpm = mac_get_fan_rpm  # type: ignore[assignment]
+    host_integration_mod.get_fan_rpm = mac_get_fan_rpm  # type: ignore[assignment]
     metrics_mod.get_gpu_metrics = mac_get_gpu_metrics  # type: ignore[assignment]
     hm.get_gpu_metrics = mac_get_gpu_metrics  # type: ignore[assignment]
+    host_integration_mod.get_gpu_metrics = mac_get_gpu_metrics  # type: ignore[assignment]
     metrics_mod.get_virtual_machines_from_virsh = mac_get_virtual_machines_from_virsh  # type: ignore[assignment]
     vms_integration_mod.get_virtual_machines_from_virsh = mac_get_virtual_machines_from_virsh  # type: ignore[assignment]
     vms_integration_mod.handle_command = mac_handle_vm_command  # type: ignore[assignment]
