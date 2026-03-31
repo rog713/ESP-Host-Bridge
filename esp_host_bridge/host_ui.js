@@ -9,6 +9,7 @@ let lastStatusPayload = null;
 let currentViewMode = 'setup';
 let currentEspPreviewPage = 'home';
 let currentWorkloadMode = 'host';
+let lastMonitorDashboardSignature = '';
 let mainLogRows = [];
 let hideMetricLogs = false;
 const ESP_PREVIEW_PAGE_ORDER = ['home', 'docker', 'settings_1', 'settings_2', 'info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6', 'info_7', 'info_8', 'vms'];
@@ -1035,10 +1036,49 @@ function integrationLabel(id) {
 function integrationDashboardRows(s) {
   return Array.isArray(s && s.integration_dashboard) ? s.integration_dashboard : [];
 }
+function monitorDashboardGroups(s) {
+  return Array.isArray(s && s.monitor_dashboard) ? s.monitor_dashboard : [];
+}
 function integrationDashboardMeta(s, id) {
   const target = String(id || '').trim().toLowerCase();
   if (!target) return null;
   return integrationDashboardRows(s).find((row) => String(row && row.integration_id || '').trim().toLowerCase() === target) || null;
+}
+function monitorDashboardCardHtml(card) {
+  const cardId = String(card && card.card_id || '').trim();
+  if (!cardId) return '';
+  const label = escapeHtml(String(card && card.label || cardId));
+  const subtext = escapeHtml(String(card && card.subtext || ''));
+  const sparkKeys = Array.isArray(card && card.spark_keys) ? card.spark_keys : [];
+  const sparkSvg = sparkKeys.length ? `<svg id="spark${escapeHtml(cardId)}"></svg>` : '';
+  return `<div class="mcard" id="mc${escapeHtml(cardId)}">
+    <div class="metric-label">${label}</div>
+    <div class="metric-value" id="mv${escapeHtml(cardId)}">--</div>
+    <div class="metric-sub" id="ms${escapeHtml(cardId)}">${subtext}</div>
+    ${sparkSvg}
+  </div>`;
+}
+function renderMonitorDashboardSections(s) {
+  const box = document.getElementById('monitorDashboardSections');
+  if (!box) return;
+  const groups = monitorDashboardGroups(s);
+  const signature = JSON.stringify(groups);
+  if (signature === lastMonitorDashboardSignature) return;
+  lastMonitorDashboardSignature = signature;
+  if (!groups.length) {
+    box.innerHTML = '<div class="monitor-note">Waiting for monitor dashboard metadata...</div>';
+    return;
+  }
+  box.innerHTML = groups.map((group) => {
+    const title = escapeHtml(String(group && group.title || 'Metrics'));
+    const iconClass = escapeHtml(String(group && group.icon_class || 'mdi-view-dashboard-outline'));
+    const spanClass = escapeHtml(String(group && group.span_class || 'span6'));
+    const cards = Array.isArray(group && group.cards) ? group.cards : [];
+    return `<section class="mgroup ${spanClass}">
+      <h3><span class="gicon" aria-hidden="true"><span class="mdi ${iconClass}"></span></span>${title}</h3>
+      <div class="mgroup-grid">${cards.map(monitorDashboardCardHtml).join('')}</div>
+    </section>`;
+  }).join('');
 }
 function integrationHealthClass(row) {
   if (!row || row.enabled === false) return '';
@@ -1180,55 +1220,159 @@ function renderIntegrationOverview(s) {
     }
   }
 }
+function metricNumber(metrics, key) {
+  if (!metrics || !Object.prototype.hasOwnProperty.call(metrics, key) || metrics[key] === '') return null;
+  const n = Number(metrics[key]);
+  return Number.isFinite(n) ? n : null;
+}
+function monitorCardSeverity(kind, values) {
+  const primary = Number(values && values.primary);
+  const secondary = Number(values && values.secondary);
+  switch (String(kind || '')) {
+    case 'cpu_pct':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 70 ? 'sev-warn' : 'sev-ok';
+    case 'mem_pct':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'cpu_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 85 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'traffic_pair':
+    case 'disk_io_pair':
+      return ((primary || 0) + (secondary || 0)) > 50000 ? 'sev-warn' : 'sev-ok';
+    case 'disk_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 55 ? 'sev-danger' : primary >= 48 ? 'sev-warn' : 'sev-ok';
+    case 'disk_usage':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 92 ? 'sev-danger' : primary >= 80 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_util':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 95 ? 'sev-danger' : primary >= 80 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 85 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_mem':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'docker_counts':
+      return Number(values && values.tertiary || 0) > 0 ? 'sev-warn' : 'sev-ok';
+    case 'always_ok':
+      return 'sev-ok';
+    default:
+      return null;
+  }
+}
+function monitorCardSparkValues(s, card) {
+  const keys = Array.isArray(card && card.spark_keys) ? card.spark_keys : [];
+  if (!keys.length) return [];
+  if (keys.length === 1) return historyOf(s, keys[0]);
+  const series = keys.map((key) => historyOf(s, key));
+  const size = Math.max(...series.map((items) => items.length), 0);
+  return Array.from({ length: size }, (_, index) => series.reduce((sum, items) => sum + Number(items[index] || 0), 0));
+}
+function monitorCardViewModel(card, metrics, workloadMode) {
+  const primary = metricNumber(metrics, card.metric_key);
+  const secondary = metricNumber(metrics, card.secondary_metric_key);
+  const tertiary = metricNumber(metrics, card.tertiary_metric_key);
+  const values = { primary, secondary, tertiary };
+  const subtextFallback = String(card && card.subtext || '');
+  switch (String(card && card.render_kind || '')) {
+    case 'percent_one_decimal':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}%` : '--',
+        subText: primary !== null ? subtextFallback : 'Waiting for telemetry',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'temp_one_decimal':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}°C` : '--',
+        subText: subtextFallback || 'Temperature',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'uptime':
+      return {
+        valueText: primary !== null ? fmtUptimeSec(primary) : '--',
+        subText: primary !== null ? `${Math.round(primary)}s total` : 'Waiting for telemetry',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'pair_round':
+      return {
+        valueText: (primary !== null || secondary !== null) ? `${primary !== null ? Math.round(primary) : '...'} / ${secondary !== null ? Math.round(secondary) : '...'}` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'disk_temp_usage':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}°C` : '--',
+        subText: secondary !== null ? `${secondary.toFixed(1)}% used` : (subtextFallback || 'Temperature / Usage'),
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'integer':
+      return {
+        valueText: primary !== null ? `${Math.round(primary)}` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'integer_percent':
+      return {
+        valueText: primary !== null ? `${Math.round(primary)}%` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'docker_counts':
+      return {
+        valueText: `${metrics.DOCKRUN ?? '--'} / ${metrics.DOCKSTOP ?? '--'} / ${metrics.DOCKUNH ?? '--'}`,
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, { primary: metrics.DOCKRUN, secondary: metrics.DOCKSTOP, tertiary: metrics.DOCKUNH }),
+      };
+    case 'vm_counts':
+      return {
+        valueText: workloadMode === 'homeassistant'
+          ? `${metrics.VMSRUN ?? '--'}`
+          : `${metrics.VMSRUN ?? '--'} / ${metrics.VMSPAUSE ?? '--'} / ${metrics.VMSSTOP ?? '--'} / ${metrics.VMSOTHER ?? '--'}`,
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    default:
+      return {
+        valueText: primary !== null ? String(primary) : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+  }
+}
+function updateMonitorCardsFromMetadata(s, workloadMode) {
+  const metrics = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  monitorDashboardGroups(s).forEach((group) => {
+    const cards = Array.isArray(group && group.cards) ? group.cards : [];
+    cards.forEach((card) => {
+      const view = monitorCardViewModel(card, metrics, workloadMode);
+      setMetricCard(String(card.card_id || ''), view.valueText, view.subText, view.sev);
+      const sparkColor = String(card && card.spark_color || '').trim();
+      const sparkValues = monitorCardSparkValues(s, card);
+      if (sparkColor && sparkValues.length) setSpark(`spark${String(card.card_id || '')}`, sparkValues, sparkColor);
+      else if (sparkColor) setSpark(`spark${String(card.card_id || '')}`, [], sparkColor);
+    });
+  });
+}
 function updateMonitorDashboard(s) {
   if (!s || typeof s !== 'object') return;
   const workloadMode = getWorkloadMode(s);
   currentWorkloadMode = workloadMode;
+  renderMonitorDashboardSections(s);
   const labels = getWorkloadLabels(workloadMode);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
-  const n = (k)=> (Object.prototype.hasOwnProperty.call(m,k) && m[k] !== '' ? Number(m[k]) : null);
   metricText('sumAgent', s.running ? 'Running' : 'Stopped');
   if (workloadMode === 'homeassistant') metricText('sumDocker', 'A ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • I ' + String(m.VMSRUN ?? '--'));
   else metricText('sumDocker', 'D ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • VM ' + String(m.VMSRUN ?? '--') + '/' + String(m.VMSPAUSE ?? '--') + '/' + String(m.VMSSTOP ?? '--'));
   metricText('sumAge', fmtAgeSec(s.last_metrics_age_s));
   metricText('sumPower', String(m.POWER || 'RUNNING'));
-  const cpu = n('CPU'), mem = n('MEM'), temp = n('TEMP'), up = n('UP');
-  const rx = n('RX'), tx = n('TX'), dtemp = n('DISK'), dpct = n('DISKPCT'), dr = n('DISKR'), dw = n('DISKW');
-  const fan = n('FAN'), gu = n('GPUU'), gt = n('GPUT'), gvm = n('GPUVM');
-  setMetricCard('CPU', cpu!==null ? cpu.toFixed(1) + '%' : '--', cpu!==null ? 'Current load' : 'Waiting for telemetry', cpu===null?null:(cpu>=90?'sev-danger':cpu>=70?'sev-warn':'sev-ok'));
-  setMetricCard('MEM', mem!==null ? mem.toFixed(1) + '%' : '--', mem!==null ? 'Used memory' : 'Waiting for telemetry', mem===null?null:(mem>=90?'sev-danger':mem>=75?'sev-warn':'sev-ok'));
-  setMetricCard('TEMP', temp!==null ? temp.toFixed(1) + '°C' : '--', 'CPU sensor', temp===null?null:(temp>=85?'sev-danger':temp>=75?'sev-warn':'sev-ok'));
-  setMetricCard('UP', up!==null ? fmtUptimeSec(up) : '--', up!==null ? String(Math.round(up)) + 's total' : 'Waiting for telemetry', 'sev-ok');
-  setMetricCard('NET', (rx!==null||tx!==null) ? String(rx!==null?Math.round(rx):'...') + ' / ' + String(tx!==null?Math.round(tx):'...') : '--', 'RX / TX kbps', ((rx||0)+(tx||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISKIO', (dr!==null||dw!==null) ? String(dr!==null?Math.round(dr):'...') + ' / ' + String(dw!==null?Math.round(dw):'...') : '--', 'Read / Write kB/s', ((dr||0)+(dw||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISK', dtemp!==null ? dtemp.toFixed(1) + '°C' : '--', dpct!==null ? dpct.toFixed(1) + '% used' : 'Temperature / Usage', dtemp===null?null:(dtemp>=55?'sev-danger':dtemp>=48?'sev-warn':'sev-ok'));
-  setMetricCard('DISKPCT', dpct!==null ? dpct.toFixed(1) + '%' : '--', 'Disk usage', dpct===null?null:(dpct>=92?'sev-danger':dpct>=80?'sev-warn':'sev-ok'));
-  setMetricCard('FAN', fan!==null ? String(Math.round(fan)) : '--', 'RPM', 'sev-ok');
-  setMetricCard('GPUU', gu!==null ? String(Math.round(gu)) + '%' : '--', 'GPU utilization', gu===null?null:(gu>=95?'sev-danger':gu>=80?'sev-warn':'sev-ok'));
-  setMetricCard('GPUT', gt!==null ? gt.toFixed(1) + '°C' : '--', 'GPU temp', gt===null?null:(gt>=85?'sev-danger':gt>=75?'sev-warn':'sev-ok'));
-  setMetricCard('GPUVM', gvm!==null ? String(Math.round(gvm)) + '%' : '--', 'VRAM usage', gvm===null?null:(gvm>=90?'sev-danger':gvm>=75?'sev-warn':'sev-ok'));
-  setMetricCard('DockerCounts', String(m.DOCKRUN ?? '--') + ' / ' + String(m.DOCKSTOP ?? '--') + ' / ' + String(m.DOCKUNH ?? '--'), labels.dockerSummary, (Number(m.DOCKUNH||0)>0) ? 'sev-warn' : 'sev-ok');
-  if (workloadMode === 'homeassistant') setMetricCard('VmCounts', String(m.VMSRUN ?? '--'), labels.vmSummary, 'sev-ok');
-  else setMetricCard('VmCounts', String(m.VMSRUN ?? '--') + ' / ' + String(m.VMSPAUSE ?? '--') + ' / ' + String(m.VMSSTOP ?? '--') + ' / ' + String(m.VMSOTHER ?? '--'), labels.vmSummary, 'sev-ok');
+  updateMonitorCardsFromMetadata(s, workloadMode);
   renderDockerLists(parseDockerCompact(m.DOCKER));
   renderVmLists(parseVmCompact(m.VMS));
   renderIntegrationOverview(s);
-  setSpark('sparkCPU', historyOf(s,'CPU'), '#60a5fa');
-  setSpark('sparkMEM', historyOf(s,'MEM'), '#34d399');
-  setSpark('sparkTEMP', historyOf(s,'TEMP'), '#fb923c');
-  setSpark('sparkUP', historyOf(s,'UP'), '#a78bfa');
-  const rxh = historyOf(s,'RX'); const txh = historyOf(s,'TX');
-  const netHist = rxh.map((v,i)=> Number(v||0) + Number((txh[i]||0)) );
-  setSpark('sparkNET', netHist, '#22d3ee');
-  const drh = historyOf(s,'DISKR'); const dwh = historyOf(s,'DISKW');
-  const dioHist = drh.map((v,i)=> Number(v||0) + Number((dwh[i]||0)) );
-  setSpark('sparkDISKIO', dioHist, '#f472b6');
-  setSpark('sparkDISK', historyOf(s,'DISK'), '#f59e0b');
-  setSpark('sparkDISKPCT', historyOf(s,'DISKPCT'), '#10b981');
-  setSpark('sparkFAN', historyOf(s,'FAN'), '#fbbf24');
-  setSpark('sparkGPUU', historyOf(s,'GPUU'), '#38bdf8');
-  setSpark('sparkGPUT', historyOf(s,'GPUT'), '#fb7185');
-  setSpark('sparkGPUVM', historyOf(s,'GPUVM'), '#c084fc');
   updateEspPreview(s);
 }
 function updateEspPreview(s) {

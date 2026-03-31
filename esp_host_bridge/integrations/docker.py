@@ -12,7 +12,16 @@ from ..metrics import (
     get_home_assistant_addons,
     normalize_docker_data,
 )
-from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import (
+    CleanerSet,
+    CommandContext,
+    CommandSpec,
+    ConfigFieldSpec,
+    DashboardCardSpec,
+    DashboardGroupSpec,
+    IntegrationSpec,
+    PollContext,
+)
 
 DOCKER_WARN_INTERVAL_SECONDS = 30.0
 DOCKER_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "unhealthy": 0}
@@ -72,6 +81,26 @@ DOCKER_COMMANDS = (
         label="Stop Docker Container",
         destructive=True,
         confirmation_text="Stop the selected Docker container",
+    ),
+)
+
+DOCKER_DASHBOARD_GROUPS = (
+    DashboardGroupSpec(
+        group_id="docker_summary",
+        title="Docker",
+        homeassistant_title="Add-ons",
+        icon_class="mdi-docker",
+        cards=(
+            DashboardCardSpec(
+                card_id="DockerCounts",
+                label="Docker Summary",
+                homeassistant_label="Add-on Summary",
+                render_kind="docker_counts",
+                subtext="Run / Stop / Unhealthy",
+                homeassistant_subtext="Started / Stopped / Issue",
+                severity_kind="docker_counts",
+            ),
+        ),
     ),
 )
 
@@ -341,6 +370,7 @@ DOCKER_INTEGRATION = IntegrationSpec(
     homeassistant_action_group_title="Add-on Controls",
     config_fields=DOCKER_CONFIG_FIELDS,
     commands=DOCKER_COMMANDS,
+    dashboard_groups=DOCKER_DASHBOARD_GROUPS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

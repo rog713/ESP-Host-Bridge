@@ -80,6 +80,32 @@ class CommandSpec:
 
 
 @dataclass(frozen=True)
+class DashboardCardSpec:
+    card_id: str
+    label: str
+    render_kind: str
+    metric_key: Optional[str] = None
+    secondary_metric_key: Optional[str] = None
+    tertiary_metric_key: Optional[str] = None
+    subtext: str = ""
+    homeassistant_label: Optional[str] = None
+    homeassistant_subtext: Optional[str] = None
+    severity_kind: str = ""
+    spark_keys: tuple[str, ...] = ()
+    spark_color: str = ""
+
+
+@dataclass(frozen=True)
+class DashboardGroupSpec:
+    group_id: str
+    title: str
+    icon_class: str
+    span_class: str = "span6"
+    homeassistant_title: Optional[str] = None
+    cards: tuple[DashboardCardSpec, ...] = ()
+
+
+@dataclass(frozen=True)
 class IntegrationSpec:
     integration_id: str
     title: str = ""
@@ -92,6 +118,7 @@ class IntegrationSpec:
     config_fields: tuple[ConfigFieldSpec, ...] = ()
     setup_choices: tuple[SetupChoiceSpec, ...] = ()
     commands: tuple[CommandSpec, ...] = ()
+    dashboard_groups: tuple[DashboardGroupSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     poll: Optional[Callable[[PollContext], Dict[str, Any]]] = None

@@ -17,6 +17,7 @@ from esp_host_bridge.integrations import (
     get_registered_config_fields,
     integration_dashboard_snapshot,
     integration_health_snapshot,
+    monitor_dashboard_snapshot,
     redact_agent_command_args,
 )
 from esp_host_bridge.integrations import registry as registry_mod
@@ -121,6 +122,34 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(by_id_ha["docker"]["action_group_title"], "Add-on Controls")
         self.assertEqual(by_id_ha["vms"]["label"], "Integrations")
         self.assertEqual(by_id_ha["vms"]["action_group_title"], "Integration Controls")
+
+    def test_monitor_dashboard_snapshot_exposes_grouped_cards(self) -> None:
+        default_rows = monitor_dashboard_snapshot(homeassistant_mode=False)
+        homeassistant_rows = monitor_dashboard_snapshot(homeassistant_mode=True)
+
+        self.assertEqual(
+            [row["group_id"] for row in default_rows],
+            ["host_system", "host_network_storage", "host_cooling_gpu", "docker_summary", "vms_summary"],
+        )
+
+        system_group = default_rows[0]
+        docker_group_ha = next(row for row in homeassistant_rows if row["group_id"] == "docker_summary")
+        vms_group_ha = next(row for row in homeassistant_rows if row["group_id"] == "vms_summary")
+
+        self.assertEqual(system_group["title"], "System")
+        self.assertEqual(system_group["cards"][0]["card_id"], "CPU")
+        self.assertEqual(system_group["cards"][0]["render_kind"], "percent_one_decimal")
+        self.assertEqual(system_group["cards"][0]["spark_keys"], ["CPU"])
+        self.assertEqual(system_group["cards"][0]["spark_color"], "#60a5fa")
+        self.assertEqual(system_group["cards"][3]["render_kind"], "uptime")
+
+        self.assertEqual(docker_group_ha["title"], "Add-ons")
+        self.assertEqual(docker_group_ha["cards"][0]["label"], "Add-on Summary")
+        self.assertEqual(docker_group_ha["cards"][0]["subtext"], "Started / Stopped / Issue")
+
+        self.assertEqual(vms_group_ha["title"], "Integrations")
+        self.assertEqual(vms_group_ha["cards"][0]["label"], "Integration Summary")
+        self.assertEqual(vms_group_ha["cards"][0]["subtext"], "Loaded integrations")
 
     def test_cfg_to_agent_args_and_redaction_cover_registered_integrations(self) -> None:
         cfg = {

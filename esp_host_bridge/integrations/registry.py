@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Optional, Sequence
 
-from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import (
+    CleanerSet,
+    CommandContext,
+    CommandSpec,
+    ConfigFieldSpec,
+    DashboardCardSpec,
+    DashboardGroupSpec,
+    IntegrationSpec,
+    PollContext,
+)
 from .docker import DOCKER_INTEGRATION
 from .host import HOST_INTEGRATION
 from .vms import VMS_INTEGRATION
@@ -75,6 +84,57 @@ def integration_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[
             }
         )
     rows.sort(key=lambda row: (int(row.get("sort_order", 100)), str(row.get("label", ""))))
+    return rows
+
+
+def _dashboard_card_snapshot(card: DashboardCardSpec, *, homeassistant_mode: bool) -> Dict[str, Any]:
+    label = (
+        str(card.homeassistant_label or "").strip()
+        if homeassistant_mode and str(card.homeassistant_label or "").strip()
+        else str(card.label or card.card_id).strip()
+    )
+    subtext = (
+        str(card.homeassistant_subtext or "").strip()
+        if homeassistant_mode and str(card.homeassistant_subtext or "").strip()
+        else str(card.subtext or "").strip()
+    )
+    return {
+        "card_id": card.card_id,
+        "label": label,
+        "render_kind": str(card.render_kind or "text"),
+        "metric_key": str(card.metric_key or "").strip() or None,
+        "secondary_metric_key": str(card.secondary_metric_key or "").strip() or None,
+        "tertiary_metric_key": str(card.tertiary_metric_key or "").strip() or None,
+        "subtext": subtext or None,
+        "severity_kind": str(card.severity_kind or "").strip() or None,
+        "spark_keys": list(card.spark_keys),
+        "spark_color": str(card.spark_color or "").strip() or None,
+    }
+
+
+def _dashboard_group_snapshot(
+    integration: IntegrationSpec, group: DashboardGroupSpec, *, homeassistant_mode: bool
+) -> Dict[str, Any]:
+    title = (
+        str(group.homeassistant_title or "").strip()
+        if homeassistant_mode and str(group.homeassistant_title or "").strip()
+        else str(group.title or integration.title or integration.integration_id).strip()
+    )
+    return {
+        "integration_id": integration.integration_id,
+        "group_id": group.group_id,
+        "title": title,
+        "icon_class": str(group.icon_class or integration.icon_class or "mdi-view-dashboard-outline"),
+        "span_class": str(group.span_class or "span6"),
+        "cards": [_dashboard_card_snapshot(card, homeassistant_mode=homeassistant_mode) for card in group.cards],
+    }
+
+
+def monitor_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    rows: list[Dict[str, Any]] = []
+    for integration in _REGISTERED_INTEGRATIONS:
+        for group in integration.dashboard_groups:
+            rows.append(_dashboard_group_snapshot(integration, group, homeassistant_mode=homeassistant_mode))
     return rows
 
 

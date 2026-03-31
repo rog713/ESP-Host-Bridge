@@ -1,4 +1,13 @@
-from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import (
+    CleanerSet,
+    CommandContext,
+    CommandSpec,
+    ConfigFieldSpec,
+    DashboardCardSpec,
+    DashboardGroupSpec,
+    IntegrationSpec,
+    PollContext,
+)
 from .host import HOST_INTEGRATION
 from .registry import (
     command_registry_snapshot,
@@ -13,6 +22,7 @@ from .registry import (
     integration_health_snapshot,
     integration_cfg_to_agent_args,
     match_registered_command,
+    monitor_dashboard_snapshot,
     poll_integrations,
     redact_agent_command_args,
     validate_integration_cfg,
@@ -23,6 +33,8 @@ __all__ = [
     "CommandContext",
     "CommandSpec",
     "ConfigFieldSpec",
+    "DashboardCardSpec",
+    "DashboardGroupSpec",
     "IntegrationSpec",
     "HOST_INTEGRATION",
     "PollContext",
@@ -38,6 +50,7 @@ __all__ = [
     "integration_health_snapshot",
     "integration_cfg_to_agent_args",
     "match_registered_command",
+    "monitor_dashboard_snapshot",
     "poll_integrations",
     "redact_agent_command_args",
     "validate_integration_cfg",

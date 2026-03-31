@@ -10,7 +10,16 @@ from ..metrics import (
     get_virtual_machines_from_virsh,
     vm_summary_counts,
 )
-from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import (
+    CleanerSet,
+    CommandContext,
+    CommandSpec,
+    ConfigFieldSpec,
+    DashboardCardSpec,
+    DashboardGroupSpec,
+    IntegrationSpec,
+    PollContext,
+)
 
 VMS_WARN_INTERVAL_SECONDS = 30.0
 VMS_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
@@ -101,6 +110,26 @@ VMS_COMMANDS = (
         label="Restart Virtual Machine",
         destructive=True,
         confirmation_text="Restart the selected virtual machine",
+    ),
+)
+
+VMS_DASHBOARD_GROUPS = (
+    DashboardGroupSpec(
+        group_id="vms_summary",
+        title="Virtual Machines",
+        homeassistant_title="Integrations",
+        icon_class="mdi-monitor-multiple",
+        cards=(
+            DashboardCardSpec(
+                card_id="VmCounts",
+                label="VM Summary",
+                homeassistant_label="Integration Summary",
+                render_kind="vm_counts",
+                subtext="Run / Pause / Stop / Other",
+                homeassistant_subtext="Loaded integrations",
+                severity_kind="always_ok",
+            ),
+        ),
     ),
 )
 
@@ -336,6 +365,7 @@ VMS_INTEGRATION = IntegrationSpec(
     homeassistant_action_group_title="Integration Controls",
     config_fields=VMS_CONFIG_FIELDS,
     commands=VMS_COMMANDS,
+    dashboard_groups=VMS_DASHBOARD_GROUPS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,
