@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from esp_host_bridge.config import (
+    REDACTED_SECRET_TEXT,
+    cfg_to_agent_args,
+    preserve_secret_fields,
+    redact_cfg,
+)
+from esp_host_bridge.integrations import (
+    command_registry_snapshot,
+    get_registered_config_fields,
+    redact_agent_command_args,
+)
+from esp_host_bridge.integrations.base import ConfigFieldSpec
+from esp_host_bridge.runtime import RunnerManager
+
+
+class IntegrationRegistryTests(unittest.TestCase):
+    def test_registered_field_names_include_current_integrations(self) -> None:
+        names = {field.name for field in get_registered_config_fields()}
+        self.assertTrue(
+            {
+                "iface",
+                "gpu_polling_enabled",
+                "disk_device",
+                "disk_temp_device",
+                "cpu_temp_sensor",
+                "fan_sensor",
+                "docker_socket",
+                "docker_polling_enabled",
+                "docker_interval",
+                "virsh_binary",
+                "vm_polling_enabled",
+                "vm_interval",
+            }.issubset(names)
+        )
+
+    def test_command_registry_snapshot_exposes_expected_owners(self) -> None:
+        snapshot = command_registry_snapshot()
+        ids = {row["command_id"] for row in snapshot}
+        owners = {row["owner_id"] for row in snapshot}
+        self.assertTrue({"host", "docker", "vms"}.issubset(owners))
+        self.assertTrue(
+            {
+                "host_shutdown",
+                "host_restart",
+                "docker_start",
+                "docker_stop",
+                "vm_start",
+                "vm_stop",
+                "vm_force_stop",
+                "vm_restart",
+            }.issubset(ids)
+        )
+
+    def test_cfg_to_agent_args_and_redaction_cover_registered_integrations(self) -> None:
+        cfg = {
+            "baud": 115200,
+            "interval": 1.0,
+            "timeout": 2.0,
+            "serial_port": "/dev/ttyUSB0",
+            "iface": "eth0",
+            "gpu_polling_enabled": False,
+            "disk_device": "/dev/nvme0n1",
+            "disk_temp_device": "/dev/nvme0n1",
+            "cpu_temp_sensor": "/tmp/cpu.temp",
+            "fan_sensor": "fan1",
+            "docker_socket": "/var/run/docker.sock",
+            "docker_polling_enabled": True,
+            "docker_interval": 2.0,
+            "virsh_binary": "virsh",
+            "vm_polling_enabled": True,
+            "vm_interval": 5.0,
+            "allow_host_cmds": False,
+            "host_cmd_use_sudo": False,
+            "shutdown_cmd": "",
+            "restart_cmd": "",
+            "webui_auth_enabled": False,
+            "webui_password_hash": "",
+            "webui_session_secret": "",
+        }
+        argv = cfg_to_agent_args(cfg)
+        self.assertIn("--iface", argv)
+        self.assertIn("eth0", argv)
+        self.assertIn("--disable-gpu-polling", argv)
+        self.assertIn("--docker-socket", argv)
+        self.assertIn("/var/run/docker.sock", argv)
+        self.assertIn("--virsh-binary", argv)
+        self.assertIn("virsh", argv)
+
+        fake_secret_field = ConfigFieldSpec("demo_secret", "str", "", secret=True, cli_flag="--demo-secret")
+        with mock.patch(
+            "esp_host_bridge.integrations.registry.get_registered_secret_config_fields",
+            return_value=(fake_secret_field,),
+        ):
+            redacted = redact_agent_command_args(
+                ["python3", "-m", "esp_host_bridge", "agent", "--demo-secret", "secret"],
+                mask=REDACTED_SECRET_TEXT,
+            )
+        self.assertEqual(redacted[-1], REDACTED_SECRET_TEXT)
+
+    def test_secret_preserve_and_redact_helpers_keep_masked_values(self) -> None:
+        fake_secret_field = ConfigFieldSpec("demo_secret", "str", "", secret=True, cli_flag="--demo-secret")
+        existing = {
+            "webui_session_secret": "session-secret",
+            "webui_password_hash": "password-hash",
+            "demo_secret": "integration-secret",
+        }
+        candidate = {
+            "webui_session_secret": "...",
+            "webui_password_hash": "",
+            "demo_secret": "xxx",
+        }
+        base_fields = tuple(get_registered_config_fields())
+        with mock.patch(
+            "esp_host_bridge.config.get_registered_secret_config_field_names",
+            return_value=("demo_secret",),
+        ), mock.patch(
+            "esp_host_bridge.config.get_registered_config_fields",
+            return_value=base_fields + (fake_secret_field,),
+        ):
+            preserved = preserve_secret_fields(candidate, existing, include_builtin=True)
+            redacted = redact_cfg(existing)
+        self.assertEqual(preserved["webui_session_secret"], "session-secret")
+        self.assertEqual(preserved["webui_password_hash"], "password-hash")
+        self.assertEqual(preserved["demo_secret"], "integration-secret")
+
+        self.assertEqual(redacted["webui_session_secret"], REDACTED_SECRET_TEXT)
+        self.assertEqual(redacted["webui_password_hash"], REDACTED_SECRET_TEXT)
+        self.assertEqual(redacted["demo_secret"], REDACTED_SECRET_TEXT)
+
+    def test_runner_manager_refreshes_health_from_metric_frames(self) -> None:
+        mgr = RunnerManager(self_script=Path("/tmp/fake.py"), python_bin="python3", package_module="esp_host_bridge")
+        mgr._integration_health_cache = {
+            "host": {"enabled": True, "available": True, "last_refresh_ts": 0.0, "last_success_ts": 0.0},
+            "docker": {"enabled": True, "available": True, "last_refresh_ts": 0.0, "last_success_ts": 0.0},
+            "vms": {"enabled": True, "available": True, "last_refresh_ts": 0.0, "last_success_ts": 0.0},
+        }
+        mgr._refresh_integration_health_from_metrics({"CPU": "7.1", "DOCKRUN": "1", "VMSRUN": "0"}, 123.45)
+        self.assertEqual(mgr._integration_health_cache["host"]["last_refresh_ts"], 123.45)
+        self.assertEqual(mgr._integration_health_cache["docker"]["last_refresh_ts"], 123.45)
+        self.assertEqual(mgr._integration_health_cache["vms"]["last_refresh_ts"], 123.45)
+
+
+if __name__ == "__main__":
+    unittest.main()
