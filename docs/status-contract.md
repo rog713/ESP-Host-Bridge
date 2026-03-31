@@ -2,6 +2,10 @@
 
 This document describes the browser-facing `/api/status` contract on the `dev` branch.
 
+For the backend integration model that feeds this contract, see:
+
+- `docs/integration-model.md`
+
 Scope:
 
 - This is the Web UI contract, not the internal polling contract.
