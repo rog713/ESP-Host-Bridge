@@ -148,8 +148,13 @@ DOCKER_PREVIEW_PAGES = (
         page_id="docker",
         dom_id="espPageDocker",
         preview_order=1,
+        render_kind="workload_list",
         title="Docker",
         footer="Docker",
+        render_data={
+            "rows_id": "espDockerRows",
+            "empty_id": "espDockerEmpty",
+        },
         tab_label="Docker",
         tab_icon_class="mdi-docker",
         indicator_count=1,

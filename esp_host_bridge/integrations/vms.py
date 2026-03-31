@@ -185,8 +185,13 @@ VMS_PREVIEW_PAGES = (
         page_id="vms",
         dom_id="espPageVms",
         preview_order=12,
+        render_kind="workload_list",
         title="VMS",
         footer="VMS",
+        render_data={
+            "rows_id": "espVmsRows",
+            "empty_id": "espVmsEmpty",
+        },
         tab_label="VMS",
         tab_icon_class="mdi-monitor-multiple",
         indicator_count=1,

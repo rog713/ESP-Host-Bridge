@@ -282,6 +282,188 @@ def _preview_modal_meta(preview_ui: dict[str, Any], target: str) -> dict[str, An
     return modal if isinstance(modal, dict) else {}
 
 
+def _render_preview_page(page: dict[str, Any]) -> str:
+    page_id = str(page.get("page_id") or "").strip()
+    dom_id = html.escape(str(page.get("dom_id") or ""))
+    active_class = " active" if page_id == "home" else ""
+    render_kind = str(page.get("render_kind") or "blank").strip()
+    render_data = page.get("render_data") if isinstance(page.get("render_data"), dict) else {}
+
+    if render_kind == "home":
+        body = (
+            '<div class="esp-home-full">'
+            '<div class="esp-home-canvas">'
+            '<div class="esp-home-cross-v top"></div>'
+            '<div class="esp-home-cross-v bottom"></div>'
+            '<div class="esp-home-cross-h left"></div>'
+            '<div class="esp-home-cross-h right"></div>'
+            '<div class="esp-home-ring"></div>'
+            '<div id="espHomeNavButtons"></div>'
+            '<div class="esp-home-center" title="Screen Saver"><span class="mdi mdi-database-outline"></span></div>'
+            '</div></div>'
+        )
+    elif render_kind == "dual_metric_graph":
+        left_label = html.escape(str(render_data.get("left_label") or ""))
+        left_value_id = html.escape(str(render_data.get("left_value_id") or ""))
+        left_unit = html.escape(str(render_data.get("left_unit") or ""))
+        left_dot_class = html.escape(str(render_data.get("left_dot_class") or "left"))
+        right_label = html.escape(str(render_data.get("right_label") or ""))
+        right_value_id = html.escape(str(render_data.get("right_value_id") or ""))
+        right_unit = html.escape(str(render_data.get("right_unit") or ""))
+        right_dot_class = html.escape(str(render_data.get("right_dot_class") or "right"))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        body = (
+            '<div class="esp-dualmetric-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-dualmetric-card">'
+            '<div class="esp-dualmetric-stats">'
+            f'<div class="esp-dualmetric-dot {left_dot_class}"></div>'
+            f'<div class="esp-dualmetric-lbl left">{left_label}</div>'
+            f'<div class="esp-dualmetric-val left" id="{left_value_id}">--</div>'
+            f'<div class="esp-dualmetric-unit left">{left_unit}</div>'
+            f'<div class="esp-dualmetric-dot {right_dot_class}"></div>'
+            f'<div class="esp-dualmetric-lbl right">{right_label}</div>'
+            f'<div class="esp-dualmetric-val right" id="{right_value_id}">--</div>'
+            f'<div class="esp-dualmetric-unit right">{right_unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            '</div></div></div>'
+        )
+    elif render_kind == "system_graph":
+        left_label = html.escape(str(render_data.get("left_label") or "CPU"))
+        left_value_id = html.escape(str(render_data.get("left_value_id") or ""))
+        left_unit = html.escape(str(render_data.get("left_unit") or "%"))
+        right_label = html.escape(str(render_data.get("right_label") or "MEMORY"))
+        right_value_id = html.escape(str(render_data.get("right_value_id") or ""))
+        right_unit = html.escape(str(render_data.get("right_unit") or "%"))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        body = (
+            '<div class="esp-sys-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-sys-card">'
+            '<div class="esp-sys-stats">'
+            '<div class="esp-sys-dot cpu"></div>'
+            f'<div class="esp-sys-t" style="left:42px; top:12px;">{left_label}</div>'
+            f'<div class="esp-sys-v" id="{left_value_id}" style="left:42px; top:22px;">--</div>'
+            f'<div class="esp-sys-u cpu">{left_unit}</div>'
+            '<div class="esp-sys-dot mem"></div>'
+            f'<div class="esp-sys-t" style="left:226px; top:12px;">{right_label}</div>'
+            f'<div class="esp-sys-v mem" id="{right_value_id}" style="left:226px; top:22px;">--</div>'
+            f'<div class="esp-sys-u mem">{right_unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            '</div></div></div>'
+        )
+    elif render_kind == "metric_graph":
+        dot_class = html.escape(str(render_data.get("dot_class") or ""))
+        value_class = html.escape(str(render_data.get("value_class") or ""))
+        metric_title = html.escape(str(render_data.get("metric_title") or "Metric"))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        unit = html.escape(str(render_data.get("unit") or ""))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        body = (
+            '<div class="esp-metric-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-metric-card">'
+            '<div class="esp-metric-stats">'
+            f'<div class="esp-metric-dot{dot_class}"></div>'
+            f'<div class="esp-metric-title">{metric_title}</div>'
+            f'<div class="esp-metric-value{value_class}" id="{value_id}">--</div>'
+            f'<div class="esp-metric-unit">{unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            '</div></div></div>'
+        )
+    elif render_kind == "workload_list":
+        rows_id = html.escape(str(render_data.get("rows_id") or ""))
+        empty_id = html.escape(str(render_data.get("empty_id") or ""))
+        icon_class = html.escape(str(page.get("home_button_icon_class") or page.get("tab_icon_class") or "mdi-puzzle-outline"))
+        body = (
+            '<div class="esp-workload-page">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-workload-list" id="{rows_id}"></div>'
+            f'<div class="esp-workload-empty" id="{empty_id}" hidden>'
+            f'<div class="esp-workload-empty-icon"><span class="mdi {icon_class}"></span></div>'
+            '<div class="esp-workload-empty-title"></div>'
+            '<div class="esp-workload-empty-subtitle"></div>'
+            '</div></div>'
+        )
+    elif render_kind == "uptime":
+        status_id = html.escape(str(render_data.get("status_id") or ""))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        body = (
+            '<div class="esp-uptime-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-uptime-card">'
+            f'<div class="esp-uptime-status" id="{status_id}"></div>'
+            f'<div class="esp-uptime-value" id="{value_id}">--</div>'
+            '</div></div>'
+        )
+    elif render_kind == "hostname":
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        waiting_text = html.escape(str(render_data.get("waiting_text") or "Waiting for host..."))
+        body = (
+            '<div class="esp-hostname-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-hostname-card">'
+            f'<div class="esp-hostname-value" id="{value_id}">{waiting_text}</div>'
+            '</div></div>'
+        )
+    elif render_kind == "brightness":
+        label = html.escape(str(render_data.get("label") or "Screen Brightness"))
+        fill_id = html.escape(str(render_data.get("fill_id") or ""))
+        knob_id = html.escape(str(render_data.get("knob_id") or ""))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        body = (
+            '<div class="esp-settings1-page">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-settings1-label">{label}</div>'
+            '<div class="esp-settings1-slider">'
+            '<div class="esp-settings1-track">'
+            f'<div class="esp-settings1-fill" id="{fill_id}"></div>'
+            f'<div class="esp-settings1-knob" id="{knob_id}"></div>'
+            '</div></div>'
+            f'<div class="esp-settings1-value" id="{value_id}">255</div>'
+            '</div>'
+        )
+    elif render_kind == "power":
+        status_id = html.escape(str(render_data.get("status_id") or ""))
+        body = (
+            '<div class="esp-power-exact">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-power-status" id="{status_id}" hidden></div>'
+            '<div class="esp-power-btn shutdown">Shutdown</div>'
+            '<div class="esp-power-btn restart">Restart</div>'
+            '</div>'
+        )
+    else:
+        body = '<div class="esp-page-hint"></div>'
+
+    return f'<div class="esp-page{active_class}" id="{dom_id}">{body}</div>'
+
+
+def _render_preview_pages(preview_ui: dict[str, Any]) -> str:
+    page_map = _preview_page_map(preview_ui)
+    page_order = preview_ui.get("page_order") if isinstance(preview_ui, dict) else []
+    if not isinstance(page_order, list):
+        page_order = []
+    rows: list[str] = []
+    for page_id in page_order:
+        page = page_map.get(str(page_id))
+        if isinstance(page, dict):
+            rows.append(_render_preview_page(page))
+    return "".join(rows)
+
+
 def _render_summary_bar(chips: list[dict[str, Any]]) -> str:
     if not chips:
         return ""
@@ -805,193 +987,7 @@ def create_app(
                     <div class="esp-top-pills" id="espTopPills"></div>
                     <div class="esp-page-indicator" id="espPageIndicator" aria-hidden="true"></div>
                   </div>
-                  <div class="esp-page active" id="espPageHome">
-                    <div class="esp-home-full">
-                      <div class="esp-home-canvas">
-                      <div class="esp-home-cross-v top"></div>
-                      <div class="esp-home-cross-v bottom"></div>
-                      <div class="esp-home-cross-h left"></div>
-                      <div class="esp-home-cross-h right"></div>
-                      <div class="esp-home-ring"></div>
-                      <div id="espHomeNavButtons">{_render_preview_home_buttons(preview_ui)}</div>
-                      <div class="esp-home-center" title="Screen Saver"><span class="mdi mdi-database-outline"></span></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="esp-page" id="espPageInfo1">
-                <div class="esp-dualmetric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-dualmetric-card">
-                    <div class="esp-dualmetric-stats">
-                      <div class="esp-dualmetric-dot left"></div>
-                      <div class="esp-dualmetric-lbl left">RX</div>
-                      <div class="esp-dualmetric-val left" id="espNetRxVal">--</div>
-                      <div class="esp-dualmetric-unit left">MB/s</div>
-                      <div class="esp-dualmetric-dot right"></div>
-                      <div class="esp-dualmetric-lbl right">TX</div>
-                      <div class="esp-dualmetric-val right" id="espNetTxVal">--</div>
-                      <div class="esp-dualmetric-unit right">MB/s</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espNetGraph"></div>
-                      <div class="esp-sys-loading" id="espNetLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo2">
-                <div class="esp-sys-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-sys-card">
-                    <div class="esp-sys-stats">
-                      <div class="esp-sys-dot cpu"></div>
-                      <div class="esp-sys-t" style="left:42px; top:12px;">CPU</div>
-                      <div class="esp-sys-v" id="espSysCpuVal" style="left:42px; top:22px;">--</div>
-                      <div class="esp-sys-u cpu">%</div>
-                      <div class="esp-sys-dot mem"></div>
-                      <div class="esp-sys-t" style="left:226px; top:12px;">MEMORY</div>
-                      <div class="esp-sys-v mem" id="espSysMemVal" style="left:226px; top:22px;">--</div>
-                      <div class="esp-sys-u mem">%</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espSysGraph"></div>
-                      <div class="esp-sys-loading" id="espSysLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageDocker">
-                <div class="esp-workload-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-workload-list" id="espDockerRows"></div>
-                  <div class="esp-workload-empty" id="espDockerEmpty" hidden>
-                    <div class="esp-workload-empty-icon"><span class="mdi mdi-docker"></span></div>
-                    <div class="esp-workload-empty-title"></div>
-                    <div class="esp-workload-empty-subtitle"></div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageVms">
-                <div class="esp-workload-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-workload-list" id="espVmsRows"></div>
-                  <div class="esp-workload-empty" id="espVmsEmpty" hidden>
-                    <div class="esp-workload-empty-icon"><span class="mdi mdi-monitor-multiple"></span></div>
-                    <div class="esp-workload-empty-title"></div>
-                    <div class="esp-workload-empty-subtitle"></div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo3">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot"></div>
-                      <div class="esp-metric-title">CPU TEMP</div>
-                      <div class="esp-metric-value" id="espCpuTempVal">--</div>
-                      <div class="esp-metric-unit">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espCpuTempGraph"></div>
-                      <div class="esp-sys-loading" id="espCpuTempLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo4">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot violet"></div>
-                      <div class="esp-metric-title">DISK TEMP</div>
-                      <div class="esp-metric-value violet" id="espDiskTempVal">--</div>
-                      <div class="esp-metric-unit">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espDiskTempGraph"></div>
-                      <div class="esp-sys-loading" id="espDiskTempLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo5">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot"></div>
-                      <div class="esp-metric-title">DISK USAGE</div>
-                      <div class="esp-metric-value" id="espDiskUsageVal">--</div>
-                      <div class="esp-metric-unit">%</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espDiskUsageGraph"></div>
-                      <div class="esp-sys-loading" id="espDiskUsageLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo6">
-                <div class="esp-dualmetric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-dualmetric-card">
-                    <div class="esp-dualmetric-stats">
-                      <div class="esp-dualmetric-dot left"></div>
-                      <div class="esp-dualmetric-lbl left">GPU</div>
-                      <div class="esp-dualmetric-val left" id="espGpuUtilVal">--</div>
-                      <div class="esp-dualmetric-unit left">%</div>
-                      <div class="esp-dualmetric-dot right"></div>
-                      <div class="esp-dualmetric-lbl right">TEMP</div>
-                      <div class="esp-dualmetric-val right" id="espGpuTempVal">--</div>
-                      <div class="esp-dualmetric-unit right">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espGpuGraph"></div>
-                      <div class="esp-sys-loading" id="espGpuLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo7">
-                <div class="esp-uptime-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-uptime-card">
-                    <div class="esp-uptime-status" id="espUptimeStatus"></div>
-                    <div class="esp-uptime-value" id="espUptimeVal">--</div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo8">
-                <div class="esp-hostname-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-hostname-card">
-                    <div class="esp-hostname-value" id="espHostNameVal">Waiting for host...</div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageSettings1">
-                <div class="esp-settings1-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-settings1-label">Screen Brightness</div>
-                  <div class="esp-settings1-slider">
-                    <div class="esp-settings1-track">
-                      <div class="esp-settings1-fill" id="espBrightnessFill"></div>
-                      <div class="esp-settings1-knob" id="espBrightnessKnob"></div>
-                    </div>
-                  </div>
-                  <div class="esp-settings1-value" id="espBrightnessVal">255</div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageSettings2">
-                <div class="esp-power-exact">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-power-status" id="espPowerStatusExact" hidden></div>
-                  <div class="esp-power-btn shutdown">Shutdown</div>
-                  <div class="esp-power-btn restart">Restart</div>
-                </div>
-              </div>
+                  {_render_preview_pages(preview_ui)}
                 <div class="esp-preview-modal" id="espDockerModal" hidden>
                 <div class="esp-preview-modal-card">
                   <div class="esp-preview-modal-header">

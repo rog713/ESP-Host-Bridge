@@ -144,8 +144,10 @@ class PreviewPageSpec:
     page_id: str
     dom_id: str
     preview_order: int
+    render_kind: str
     title: str
     footer: str
+    render_data: Optional[Dict[str, Any]] = None
     tab_label: str = ""
     tab_icon_class: str = ""
     indicator_count: int = 0

@@ -274,6 +274,8 @@ def _preview_page_snapshot(page: PreviewPageSpec, *, homeassistant_mode: bool) -
         "page_id": page.page_id,
         "dom_id": page.dom_id,
         "preview_order": int(page.preview_order),
+        "render_kind": str(page.render_kind or "blank"),
+        "render_data": dict(page.render_data or {}),
         "title": title,
         "footer": footer,
         "tab_label": tab_label or None,
