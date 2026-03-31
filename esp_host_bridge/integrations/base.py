@@ -119,6 +119,31 @@ class DashboardDetailSpec:
 
 
 @dataclass(frozen=True)
+class PreviewCardSpec:
+    card_id: str
+    label: str
+    icon_class: str
+    render_kind: str
+    subtext: str
+    metric_key: Optional[str] = None
+    secondary_metric_key: Optional[str] = None
+    tertiary_metric_key: Optional[str] = None
+    homeassistant_label: Optional[str] = None
+    homeassistant_icon_class: Optional[str] = None
+    homeassistant_subtext: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SummaryChipSpec:
+    chip_id: str
+    label: str
+    render_kind: str
+    metric_key: Optional[str] = None
+    fallback_text: str = "--"
+    homeassistant_label: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class IntegrationSpec:
     integration_id: str
     title: str = ""
@@ -133,6 +158,7 @@ class IntegrationSpec:
     commands: tuple[CommandSpec, ...] = ()
     dashboard_groups: tuple[DashboardGroupSpec, ...] = ()
     dashboard_details: tuple[DashboardDetailSpec, ...] = ()
+    preview_cards: tuple[PreviewCardSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     poll: Optional[Callable[[PollContext], Dict[str, Any]]] = None

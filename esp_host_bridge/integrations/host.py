@@ -22,6 +22,7 @@ from .base import (
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
+    PreviewCardSpec,
     SetupActionSpec,
     SetupChoiceSpec,
 )
@@ -289,6 +290,51 @@ HOST_DASHBOARD_GROUPS = (
     ),
 )
 
+HOST_PREVIEW_CARDS = (
+    PreviewCardSpec(
+        card_id="CPU",
+        label="CPU",
+        icon_class="mdi-cpu-64-bit",
+        render_kind="percent_metric",
+        subtext="Usage",
+        metric_key="CPU",
+    ),
+    PreviewCardSpec(
+        card_id="MEM",
+        label="Memory",
+        icon_class="mdi-memory",
+        render_kind="percent_metric",
+        subtext="Used",
+        metric_key="MEM",
+    ),
+    PreviewCardSpec(
+        card_id="TEMP",
+        label="CPU Temp",
+        icon_class="mdi-thermometer",
+        render_kind="temp_metric",
+        subtext="Sensor",
+        metric_key="TEMP",
+    ),
+    PreviewCardSpec(
+        card_id="NET",
+        label="Network",
+        icon_class="mdi-lan",
+        render_kind="pair_metric",
+        subtext="RX / TX",
+        metric_key="RX",
+        secondary_metric_key="TX",
+    ),
+    PreviewCardSpec(
+        card_id="DISK",
+        label="Disk",
+        icon_class="mdi-harddisk",
+        render_kind="disk_temp_usage",
+        subtext="Temp / Usage",
+        metric_key="DISK",
+        secondary_metric_key="DISKPCT",
+    ),
+)
+
 
 def _cache(state: Any) -> Dict[str, Any]:
     integration_cache = getattr(state, "integration_cache", None)
@@ -483,5 +529,6 @@ HOST_INTEGRATION = IntegrationSpec(
     setup_choices=HOST_SETUP_CHOICES,
     dashboard_groups=HOST_DASHBOARD_GROUPS,
     cfg_to_agent_args=cfg_to_agent_args,
+    preview_cards=HOST_PREVIEW_CARDS,
     poll=poll,
 )

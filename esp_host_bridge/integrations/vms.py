@@ -20,6 +20,7 @@ from .base import (
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
+    PreviewCardSpec,
 )
 
 VMS_WARN_INTERVAL_SECONDS = 30.0
@@ -144,6 +145,19 @@ VMS_DASHBOARD_DETAILS = (
         homeassistant_waiting_text="Waiting for integration data...",
         show_all_text="Show all virtual machines",
         homeassistant_show_all_text="Show all integrations",
+    ),
+)
+
+VMS_PREVIEW_CARDS = (
+    PreviewCardSpec(
+        card_id="VMS",
+        label="VMs",
+        homeassistant_label="Integrations",
+        icon_class="mdi-monitor-multiple",
+        homeassistant_icon_class="mdi-devices",
+        render_kind="vm_preview_counts",
+        subtext="Run / Pause / Stop",
+        homeassistant_subtext="Loaded",
     ),
 )
 
@@ -381,6 +395,7 @@ VMS_INTEGRATION = IntegrationSpec(
     commands=VMS_COMMANDS,
     dashboard_groups=VMS_DASHBOARD_GROUPS,
     dashboard_details=VMS_DASHBOARD_DETAILS,
+    preview_cards=VMS_PREVIEW_CARDS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

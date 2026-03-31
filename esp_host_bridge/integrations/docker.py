@@ -22,6 +22,7 @@ from .base import (
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
+    PreviewCardSpec,
 )
 
 DOCKER_WARN_INTERVAL_SECONDS = 30.0
@@ -115,6 +116,19 @@ DOCKER_DASHBOARD_DETAILS = (
         homeassistant_waiting_text="Waiting for add-on data...",
         show_all_text="Show all containers",
         homeassistant_show_all_text="Show all add-ons",
+    ),
+)
+
+DOCKER_PREVIEW_CARDS = (
+    PreviewCardSpec(
+        card_id="DOCKER",
+        label="Docker",
+        homeassistant_label="Add-ons",
+        icon_class="mdi-docker",
+        homeassistant_icon_class="mdi-puzzle-outline",
+        render_kind="docker_preview_counts",
+        subtext="Run / Stop / Unh",
+        homeassistant_subtext="On / Off / Issue",
     ),
 )
 
@@ -386,6 +400,7 @@ DOCKER_INTEGRATION = IntegrationSpec(
     commands=DOCKER_COMMANDS,
     dashboard_groups=DOCKER_DASHBOARD_GROUPS,
     dashboard_details=DOCKER_DASHBOARD_DETAILS,
+    preview_cards=DOCKER_PREVIEW_CARDS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

@@ -39,7 +39,9 @@ from .integrations import (
     integration_dashboard_snapshot,
     monitor_dashboard_snapshot,
     monitor_detail_snapshot,
+    preview_cards_snapshot,
     redact_agent_command_args,
+    summary_bar_snapshot,
 )
 from .metrics import detect_hardware_choices
 from .runtime import (
@@ -226,6 +228,29 @@ def _render_monitor_detail_sections(details: list[dict[str, Any]]) -> str:
             '</div></section>'
         )
     return "".join(sections)
+
+
+def _render_summary_bar(chips: list[dict[str, Any]]) -> str:
+    if not chips:
+        return ""
+    return "".join(
+        f'<div class="summary-chip"><div class="k">{html.escape(str(chip.get("label") or chip.get("chip_id") or "Summary"))}</div>'
+        f'<div class="v" id="sum{html.escape(str(chip.get("chip_id") or "Value"))}">--</div></div>'
+        for chip in chips
+    )
+
+
+def _render_preview_cards(cards: list[dict[str, Any]]) -> str:
+    if not cards:
+        return '<div class="metric-card"><div class="metric-label">Telemetry</div><div class="metric-value">Waiting...</div><div class="metric-sub">No preview metadata</div></div>'
+    return "".join(
+        f'<div class="metric-card">'
+        f'<div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi {html.escape(str(card.get("icon_class") or "mdi-chart-box-outline"))}"></span></span>{html.escape(str(card.get("label") or card.get("card_id") or "Metric"))}</div>'
+        f'<div class="metric-value" id="m{html.escape(str(card.get("card_id") or "Metric"))}">Waiting...</div>'
+        f'<div class="metric-sub">{html.escape(str(card.get("subtext") or ""))}</div>'
+        f'</div>'
+        for card in cards
+    )
 
 def page_html(title: str, body: str) -> str:
     mode_toggle_html = _render_mode_toggle_html()
@@ -518,6 +543,8 @@ def create_app(
         err_html = f'<div class="err">{html.escape(err)}</div>' if err else ""
         logout_action = "/logout"
         homeassistant_mode = is_home_assistant_app_mode()
+        summary_bar = summary_bar_snapshot(homeassistant_mode=homeassistant_mode)
+        preview_cards = preview_cards_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_dashboard = monitor_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_details = monitor_detail_snapshot(homeassistant_mode=homeassistant_mode)
         if homeassistant_mode:
@@ -646,15 +673,7 @@ def create_app(
         <div class="hero-art" aria-hidden="true"><span class="mdi mdi-chart-timeline-variant"></span></div>
       </div>
     </div>
-    <div class="metrics-grid" id="metricsPreview">
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-cpu-64-bit"></span></span>CPU</div><div class="metric-value" id="mCPU">Waiting...</div><div class="metric-sub">Usage</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-memory"></span></span>Memory</div><div class="metric-value" id="mMEM">Waiting...</div><div class="metric-sub">Used</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-thermometer"></span></span>CPU Temp</div><div class="metric-value" id="mTEMP">Waiting...</div><div class="metric-sub">Sensor</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network</div><div class="metric-value" id="mNET">Waiting...</div><div class="metric-sub">RX / TX</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-harddisk"></span></span>Disk</div><div class="metric-value" id="mDISK">Waiting...</div><div class="metric-sub">Temp / Usage</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-docker"></span></span>Docker</div><div class="metric-value" id="mDOCKER">Waiting...</div><div class="metric-sub">Run / Stop / Unh</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-monitor-multiple"></span></span>VMs</div><div class="metric-value" id="mVMS">Waiting...</div><div class="metric-sub">Run / Pause / Stop</div></div>
-    </div>
+    <div class="metrics-grid" id="metricsPreview">{_render_preview_cards(preview_cards)}</div>
     <details class="section" data-section-key="comm_logs_control"><summary><span class="section-icon" aria-hidden="true"><span class="mdi mdi-transit-connection-variant"></span></span>Bridge Logs</summary><div class="section-body">
     <div class="actions" style="margin: 0 0 12px;">
       <button id="clearCommLogsBtn" class="secondary" type="button">Clear Bridge Logs</button>
@@ -681,13 +700,7 @@ def create_app(
       <div class="dashboard-title">Dashboard</div>
       <div class="dashboard-subtitle">Live host telemetry, bridge health, and ESP preview</div>
     </div>
-    <div class="summary-bar" id="monitorSummaryBar">
-      <div class="summary-chip"><div class="k">Agent</div><div class="v" id="sumAgent">--</div></div>
-      <div class="summary-chip"><div class="k">Serial / Workloads</div><div class="v" id="sumDocker">--</div></div>
-      <div class="summary-chip"><div class="k">Last Telemetry</div><div class="v" id="sumAge">--</div></div>
-      <div class="summary-chip"><div class="k">Integrations</div><div class="v" id="sumIntegrations">--</div></div>
-      <div class="summary-chip"><div class="k">Host Power</div><div class="v" id="sumPower">--</div></div>
-    </div>
+    <div class="summary-bar" id="monitorSummaryBar">{_render_summary_bar(summary_bar)}</div>
     <div class="monitor-grid">
       <section class="mgroup span6">
         <h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-cellphone-cog"></span></span>ESP Screen Preview</h3>
@@ -1061,6 +1074,12 @@ window.__HOST_METRICS_BOOT__ = {{
             homeassistant_mode=is_home_assistant_app_mode()
         )
         status["monitor_details"] = monitor_detail_snapshot(
+            homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["preview_cards"] = preview_cards_snapshot(
+            homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["summary_bar"] = summary_bar_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()
         )
         return jsonify(status)

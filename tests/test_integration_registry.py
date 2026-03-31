@@ -19,7 +19,9 @@ from esp_host_bridge.integrations import (
     integration_health_snapshot,
     monitor_dashboard_snapshot,
     monitor_detail_snapshot,
+    preview_cards_snapshot,
     redact_agent_command_args,
+    summary_bar_snapshot,
 )
 from esp_host_bridge.integrations import registry as registry_mod
 from esp_host_bridge.integrations.base import CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec
@@ -174,6 +176,36 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(vm_ha["title"], "Integrations")
         self.assertEqual(vm_ha["render_kind"], "vm_list")
         self.assertEqual(vm_ha["show_all_text"], "Show all integrations")
+
+    def test_preview_cards_snapshot_exposes_host_and_workload_preview_cards(self) -> None:
+        default_rows = preview_cards_snapshot(homeassistant_mode=False)
+        homeassistant_rows = preview_cards_snapshot(homeassistant_mode=True)
+
+        self.assertEqual([row["card_id"] for row in default_rows], ["CPU", "MEM", "TEMP", "NET", "DISK", "DOCKER", "VMS"])
+        self.assertEqual(default_rows[0]["label"], "CPU")
+        self.assertEqual(default_rows[0]["icon_class"], "mdi-cpu-64-bit")
+        self.assertEqual(default_rows[3]["render_kind"], "pair_metric")
+        self.assertEqual(default_rows[4]["render_kind"], "disk_temp_usage")
+
+        docker_ha = next(row for row in homeassistant_rows if row["card_id"] == "DOCKER")
+        vms_ha = next(row for row in homeassistant_rows if row["card_id"] == "VMS")
+        self.assertEqual(docker_ha["label"], "Add-ons")
+        self.assertEqual(docker_ha["icon_class"], "mdi-puzzle-outline")
+        self.assertEqual(docker_ha["subtext"], "On / Off / Issue")
+        self.assertEqual(vms_ha["label"], "Integrations")
+        self.assertEqual(vms_ha["icon_class"], "mdi-devices")
+
+    def test_summary_bar_snapshot_exposes_expected_chip_metadata(self) -> None:
+        default_rows = summary_bar_snapshot(homeassistant_mode=False)
+        homeassistant_rows = summary_bar_snapshot(homeassistant_mode=True)
+
+        self.assertEqual([row["chip_id"] for row in default_rows], ["Agent", "Workloads", "Age", "Integrations", "Power"])
+        self.assertEqual(default_rows[1]["label"], "Serial / Workloads")
+        self.assertEqual(default_rows[1]["render_kind"], "workload_summary")
+        self.assertEqual(default_rows[4]["metric_key"], "POWER")
+        self.assertEqual(default_rows[4]["fallback_text"], "RUNNING")
+
+        self.assertEqual(homeassistant_rows[1]["label"], "Serial / HA")
 
     def test_cfg_to_agent_args_and_redaction_cover_registered_integrations(self) -> None:
         cfg = {

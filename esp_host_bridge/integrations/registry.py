@@ -12,6 +12,8 @@ from .base import (
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
+    PreviewCardSpec,
+    SummaryChipSpec,
 )
 from .docker import DOCKER_INTEGRATION
 from .host import HOST_INTEGRATION
@@ -41,6 +43,25 @@ _BUILTIN_COMMANDS: tuple[CommandSpec, ...] = (
         label="Restart Host",
         destructive=True,
         confirmation_text="Restart the host",
+    ),
+)
+
+_SUMMARY_CHIPS: tuple[SummaryChipSpec, ...] = (
+    SummaryChipSpec(chip_id="Agent", label="Agent", render_kind="agent_running"),
+    SummaryChipSpec(
+        chip_id="Workloads",
+        label="Serial / Workloads",
+        homeassistant_label="Serial / HA",
+        render_kind="workload_summary",
+    ),
+    SummaryChipSpec(chip_id="Age", label="Last Telemetry", render_kind="metrics_age"),
+    SummaryChipSpec(chip_id="Integrations", label="Integrations", render_kind="integration_ready"),
+    SummaryChipSpec(
+        chip_id="Power",
+        label="Host Power",
+        render_kind="metric_text",
+        metric_key="POWER",
+        fallback_text="RUNNING",
     ),
 )
 
@@ -85,6 +106,75 @@ def integration_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[
             }
         )
     rows.sort(key=lambda row: (int(row.get("sort_order", 100)), str(row.get("label", ""))))
+    return rows
+
+
+def _preview_card_snapshot(
+    card: PreviewCardSpec, *, homeassistant_mode: bool, sort_order: int, preview_order: int
+) -> Dict[str, Any]:
+    label = (
+        str(card.homeassistant_label or "").strip()
+        if homeassistant_mode and str(card.homeassistant_label or "").strip()
+        else str(card.label or card.card_id).strip()
+    )
+    icon_class = (
+        str(card.homeassistant_icon_class or "").strip()
+        if homeassistant_mode and str(card.homeassistant_icon_class or "").strip()
+        else str(card.icon_class or "mdi-chart-box-outline").strip()
+    )
+    subtext = (
+        str(card.homeassistant_subtext or "").strip()
+        if homeassistant_mode and str(card.homeassistant_subtext or "").strip()
+        else str(card.subtext or "").strip()
+    )
+    return {
+        "card_id": card.card_id,
+        "label": label,
+        "icon_class": icon_class or "mdi-chart-box-outline",
+        "render_kind": str(card.render_kind or "text"),
+        "metric_key": str(card.metric_key or "").strip() or None,
+        "secondary_metric_key": str(card.secondary_metric_key or "").strip() or None,
+        "tertiary_metric_key": str(card.tertiary_metric_key or "").strip() or None,
+        "subtext": subtext,
+        "sort_order": sort_order,
+        "preview_order": preview_order,
+    }
+
+
+def preview_cards_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    rows: list[Dict[str, Any]] = []
+    for integration in _REGISTERED_INTEGRATIONS:
+        for preview_order, card in enumerate(integration.preview_cards):
+            rows.append(
+                _preview_card_snapshot(
+                    card,
+                    homeassistant_mode=homeassistant_mode,
+                    sort_order=int(integration.sort_order),
+                    preview_order=preview_order,
+                )
+            )
+    rows.sort(key=lambda row: (int(row.get("sort_order", 100)), int(row.get("preview_order", 0)), str(row.get("card_id", ""))))
+    return rows
+
+
+def summary_bar_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    rows: list[Dict[str, Any]] = []
+    for index, chip in enumerate(_SUMMARY_CHIPS):
+        label = (
+            str(chip.homeassistant_label or "").strip()
+            if homeassistant_mode and str(chip.homeassistant_label or "").strip()
+            else str(chip.label or chip.chip_id).strip()
+        )
+        rows.append(
+            {
+                "chip_id": chip.chip_id,
+                "label": label,
+                "render_kind": chip.render_kind,
+                "metric_key": str(chip.metric_key or "").strip() or None,
+                "fallback_text": str(chip.fallback_text or "--"),
+                "sort_order": index,
+            }
+        )
     return rows
 
 

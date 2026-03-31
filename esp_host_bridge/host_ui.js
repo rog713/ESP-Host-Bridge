@@ -11,6 +11,7 @@ let currentEspPreviewPage = 'home';
 let currentWorkloadMode = 'host';
 let lastMonitorDashboardSignature = '';
 let lastMonitorDetailSignature = '';
+let lastPreviewCardSignature = '';
 let mainLogRows = [];
 let hideMetricLogs = false;
 const ESP_PREVIEW_PAGE_ORDER = ['home', 'docker', 'settings_1', 'settings_2', 'info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6', 'info_7', 'info_8', 'vms'];
@@ -146,7 +147,7 @@ function refreshWorkloadLabels(mode) {
   const vmSub = document.getElementById('mVMS') && document.getElementById('mVMS').nextElementSibling;
   if (dockerSub) dockerSub.textContent = labels.dockerPreviewSub;
   if (vmSub) vmSub.textContent = labels.vmPreviewSub;
-  const summaryLabel = document.getElementById('sumDocker') && document.getElementById('sumDocker').parentElement && document.getElementById('sumDocker').parentElement.querySelector('.k');
+  const summaryLabel = document.getElementById('sumWorkloads') && document.getElementById('sumWorkloads').parentElement && document.getElementById('sumWorkloads').parentElement.querySelector('.k');
   if (summaryLabel) summaryLabel.textContent = labels.summaryLabel;
   setCardHeading('mvDockerCounts', mode === 'homeassistant' ? 'Add-on Summary' : 'Docker Summary');
   setCardHeading('mvVmCounts', mode === 'homeassistant' ? 'Integration Summary' : 'VM Summary');
@@ -208,6 +209,7 @@ async function pollStatus() {
     if (startedEl) startedEl.textContent = started;
     if (exitEl) exitEl.textContent = s.last_exit ?? '--';
     lastStatusPayload = s;
+    renderPreviewCards(s);
     refreshWorkloadLabels(getWorkloadMode(s));
     updateTelemetryHealth(s);
     updateSerialHealth(s);
@@ -405,38 +407,105 @@ function metricText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
 }
-function updateMetricPreview(metrics) {
-  const m = (metrics && typeof metrics === 'object') ? metrics : {};
-  const keys = Object.keys(m);
-  const hasAny = keys.length > 0;
-  const has = (k) => Object.prototype.hasOwnProperty.call(m, k) && m[k] !== '' && m[k] !== null && m[k] !== undefined;
-  if (!hasAny) {
-    metricText('mCPU', 'Waiting...');
-    metricText('mMEM', 'Waiting...');
-    metricText('mTEMP', 'Waiting...');
-    metricText('mNET', 'Waiting...');
-    metricText('mDISK', 'Waiting...');
-    metricText('mDOCKER', 'Waiting...');
-    metricText('mVMS', 'Waiting...');
+function previewCards(s) {
+  return Array.isArray(s && s.preview_cards) ? s.preview_cards : [];
+}
+function summaryBarChips(s) {
+  return Array.isArray(s && s.summary_bar) ? s.summary_bar : [];
+}
+function renderPreviewCards(s) {
+  const box = document.getElementById('metricsPreview');
+  if (!box) return;
+  const cards = previewCards(s);
+  const signature = JSON.stringify(cards);
+  if (signature === lastPreviewCardSignature) return;
+  lastPreviewCardSignature = signature;
+  if (!cards.length) {
+    box.innerHTML = '<div class="metric-card"><div class="metric-label">Telemetry</div><div class="metric-value">Waiting...</div><div class="metric-sub">No preview metadata</div></div>';
     return;
   }
-  metricText('mCPU', has('CPU') ? `${m.CPU}%` : 'Waiting...');
-  metricText('mMEM', has('MEM') ? `${m.MEM}%` : 'Waiting...');
-  metricText('mTEMP', has('TEMP') ? `${m.TEMP}°C` : 'Waiting...');
-  const rx = has('RX') ? `${m.RX}` : '...';
-  const tx = has('TX') ? `${m.TX}` : '...';
-  metricText('mNET', `${rx} / ${tx}`);
-  const dtemp = has('DISK') ? `${m.DISK}°C` : '...';
-  const dpct = has('DISKPCT') ? `${m.DISKPCT}%` : '...';
-  metricText('mDISK', `${dtemp} / ${dpct}`);
-  const dr = has('DOCKRUN') ? m.DOCKRUN : '...';
-  const ds = has('DOCKSTOP') ? m.DOCKSTOP : '...';
-  const du = has('DOCKUNH') ? m.DOCKUNH : '...';
-  metricText('mDOCKER', `${dr} / ${ds} / ${du}`);
-  const vr = has('VMSRUN') ? m.VMSRUN : '...';
-  const vp = has('VMSPAUSE') ? m.VMSPAUSE : '...';
-  const vs = has('VMSSTOP') ? m.VMSSTOP : '...';
-  metricText('mVMS', `${vr} / ${vp} / ${vs}`);
+  box.innerHTML = cards.map((card) => `<div class="metric-card">
+    <div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi ${escapeHtml(String(card && card.icon_class || 'mdi-chart-box-outline'))}"></span></span>${escapeHtml(String(card && card.label || card.card_id || 'Metric'))}</div>
+    <div class="metric-value" id="m${escapeHtml(String(card && card.card_id || 'Metric'))}">Waiting...</div>
+    <div class="metric-sub">${escapeHtml(String(card && card.subtext || ''))}</div>
+  </div>`).join('');
+}
+function previewCardText(card, metrics, workloadMode) {
+  const key = String(card && card.metric_key || '').trim();
+  const secondaryKey = String(card && card.secondary_metric_key || '').trim();
+  const has = (k) => !!k && Object.prototype.hasOwnProperty.call(metrics, k) && metrics[k] !== '' && metrics[k] !== null && metrics[k] !== undefined;
+  switch (String(card && card.render_kind || '')) {
+    case 'percent_metric':
+      return has(key) ? `${metrics[key]}%` : 'Waiting...';
+    case 'temp_metric':
+      return has(key) ? `${metrics[key]}°C` : 'Waiting...';
+    case 'pair_metric': {
+      const left = has(key) ? `${metrics[key]}` : '...';
+      const right = has(secondaryKey) ? `${metrics[secondaryKey]}` : '...';
+      return `${left} / ${right}`;
+    }
+    case 'disk_temp_usage': {
+      const left = has(key) ? `${metrics[key]}°C` : '...';
+      const right = has(secondaryKey) ? `${metrics[secondaryKey]}%` : '...';
+      return `${left} / ${right}`;
+    }
+    case 'docker_preview_counts': {
+      const dr = has('DOCKRUN') ? metrics.DOCKRUN : '...';
+      const ds = has('DOCKSTOP') ? metrics.DOCKSTOP : '...';
+      const du = has('DOCKUNH') ? metrics.DOCKUNH : '...';
+      return `${dr} / ${ds} / ${du}`;
+    }
+    case 'vm_preview_counts': {
+      const vr = has('VMSRUN') ? metrics.VMSRUN : '...';
+      if (workloadMode === 'homeassistant') return `${vr}`;
+      const vp = has('VMSPAUSE') ? metrics.VMSPAUSE : '...';
+      const vs = has('VMSSTOP') ? metrics.VMSSTOP : '...';
+      return `${vr} / ${vp} / ${vs}`;
+    }
+    default:
+      return has(key) ? String(metrics[key]) : 'Waiting...';
+  }
+}
+function updateSummaryBarFromMetadata(s, workloadMode) {
+  const metrics = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  summaryBarChips(s).forEach((chip) => {
+    const id = `sum${String(chip && chip.chip_id || '').trim()}`;
+    switch (String(chip && chip.render_kind || '')) {
+      case 'agent_running':
+        metricText(id, s.running ? 'Running' : 'Stopped');
+        break;
+      case 'workload_summary':
+        if (workloadMode === 'homeassistant') metricText(id, 'A ' + String(metrics.DOCKRUN ?? '--') + '/' + String(metrics.DOCKSTOP ?? '--') + ' • I ' + String(metrics.VMSRUN ?? '--'));
+        else metricText(id, 'D ' + String(metrics.DOCKRUN ?? '--') + '/' + String(metrics.DOCKSTOP ?? '--') + ' • VM ' + String(metrics.VMSRUN ?? '--') + '/' + String(metrics.VMSPAUSE ?? '--') + '/' + String(metrics.VMSSTOP ?? '--'));
+        break;
+      case 'metrics_age':
+        metricText(id, fmtAgeSec(s.last_metrics_age_s));
+        break;
+      case 'integration_ready': {
+        const health = (s && s.integration_health && typeof s.integration_health === 'object') ? s.integration_health : {};
+        const rows = Object.keys(health).map((key) => health[key]).filter((row) => row && row.enabled !== false);
+        const ready = rows.filter((row) => row.available === true && !row.last_error).length;
+        metricText(id, rows.length ? `${ready}/${rows.length} ready` : '--');
+        break;
+      }
+      case 'metric_text': {
+        const metricKey = String(chip && chip.metric_key || '').trim();
+        metricText(id, metricKey && Object.prototype.hasOwnProperty.call(metrics, metricKey) ? String(metrics[metricKey]) : String(chip && chip.fallback_text || '--'));
+        break;
+      }
+      default:
+        metricText(id, String(chip && chip.fallback_text || '--'));
+        break;
+    }
+  });
+}
+function updateMetricPreview(metrics) {
+  const m = (metrics && typeof metrics === 'object') ? metrics : {};
+  const cards = previewCards(lastStatusPayload || {});
+  if (!cards.length) return;
+  cards.forEach((card) => {
+    metricText(`m${String(card && card.card_id || '').trim()}`, previewCardText(card, m, currentWorkloadMode));
+  });
 }
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
@@ -1406,13 +1475,8 @@ function updateMonitorDashboard(s) {
   currentWorkloadMode = workloadMode;
   renderMonitorDashboardSections(s);
   renderMonitorDetailSections(s);
-  const labels = getWorkloadLabels(workloadMode);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
-  metricText('sumAgent', s.running ? 'Running' : 'Stopped');
-  if (workloadMode === 'homeassistant') metricText('sumDocker', 'A ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • I ' + String(m.VMSRUN ?? '--'));
-  else metricText('sumDocker', 'D ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • VM ' + String(m.VMSRUN ?? '--') + '/' + String(m.VMSPAUSE ?? '--') + '/' + String(m.VMSSTOP ?? '--'));
-  metricText('sumAge', fmtAgeSec(s.last_metrics_age_s));
-  metricText('sumPower', String(m.POWER || 'RUNNING'));
+  updateSummaryBarFromMetadata(s, workloadMode);
   updateMonitorCardsFromMetadata(s, workloadMode);
   updateMonitorDetailsFromMetadata(s);
   renderIntegrationOverview(s);
