@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
@@ -16,13 +17,130 @@ from .integrations import (
 
 REDACTED_SECRET_TEXT = "..."
 _BUILTIN_SECRET_FIELDS = frozenset({"webui_password_hash", "webui_session_secret"})
+_APP_DIR_NAME = "esp-host-bridge"
+_APP_SUPPORT_DIR_NAME = "ESP Host Bridge"
+
+
+def _platform_webui_config_dir() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / _APP_SUPPORT_DIR_NAME
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "").strip()
+        if appdata:
+            return Path(appdata) / _APP_SUPPORT_DIR_NAME
+        return Path.home() / "AppData" / "Roaming" / _APP_SUPPORT_DIR_NAME
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg:
+        return Path(xdg) / _APP_DIR_NAME
+    return Path.home() / ".config" / _APP_DIR_NAME
+
+
+def _legacy_package_local_config_path() -> Path:
+    return Path(__file__).resolve().with_name("config.json")
+
+
+def _load_raw_cfg_obj(path: Path) -> Dict[str, Any] | None:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            obj = json.load(f)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _config_signal_score(cfg: Dict[str, Any]) -> int:
+    defaults = webui_default_cfg()
+    score = 0
+    for key, default in defaults.items():
+        value = cfg.get(key, default)
+        if isinstance(default, bool):
+            if bool(value) != default:
+                score += 1
+            continue
+        if isinstance(default, int) and not isinstance(default, bool):
+            try:
+                if int(value) != default:
+                    score += 1
+            except Exception:
+                score += 1
+            continue
+        if isinstance(default, float):
+            try:
+                if float(value) != default:
+                    score += 1
+            except Exception:
+                score += 1
+            continue
+        if str(value or "").strip() != str(default or "").strip():
+            score += 1
+    return score
+
+
+def legacy_webui_config_paths() -> tuple[Path, ...]:
+    seen: set[str] = set()
+    paths: list[Path] = []
+
+    def _add(path: Path) -> None:
+        token = str(path)
+        if token in seen:
+            return
+        seen.add(token)
+        paths.append(path)
+
+    _add(_legacy_package_local_config_path())
+
+    repo_root = Path(__file__).resolve().parents[1]
+    parent = repo_root.parent
+    try:
+        siblings = list(parent.iterdir())
+    except Exception:
+        siblings = []
+    for child in siblings:
+        if not child.is_dir():
+            continue
+        if not child.name.startswith("ESP-Host-Bridge"):
+            continue
+        _add(child / "esp_host_bridge" / "config.json")
+
+    return tuple(paths)
 
 
 def default_webui_config_path() -> Path:
     env = os.environ.get("WEBUI_CONFIG", "").strip()
     if env:
         return Path(env)
-    return Path(__file__).resolve().with_name("config.json")
+    return _platform_webui_config_dir() / "config.json"
+
+
+def migrate_legacy_webui_config(path: Path | None = None) -> tuple[Path, bool, Path | None]:
+    target = Path(path) if path is not None else default_webui_config_path()
+    if target.exists():
+        return target, False, None
+
+    candidates: list[tuple[int, float, Path, Dict[str, Any]]] = []
+    for legacy_path in legacy_webui_config_paths():
+        if legacy_path == target or not legacy_path.exists() or not legacy_path.is_file():
+            continue
+        raw = _load_raw_cfg_obj(legacy_path)
+        if raw is None:
+            continue
+        normalized = normalize_cfg(raw)
+        score = _config_signal_score(normalized)
+        if score <= 0:
+            continue
+        try:
+            mtime = float(legacy_path.stat().st_mtime)
+        except Exception:
+            mtime = 0.0
+        candidates.append((score, mtime, legacy_path, normalized))
+
+    if not candidates:
+        return target, False, None
+
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _score, _mtime, source_path, migrated_cfg = candidates[0]
+    atomic_write_json(target, migrated_cfg)
+    return target, True, source_path
 
 def webui_default_cfg() -> Dict[str, Any]:
     cfg = {
@@ -128,12 +246,8 @@ def validate_cfg(cfg: Dict[str, Any]) -> tuple[bool, str]:
     return True, "ok"
 
 def load_cfg(path: Path) -> Dict[str, Any]:
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            obj = json.load(f)
-    except Exception:
-        return webui_default_cfg()
-    if not isinstance(obj, dict):
+    obj = _load_raw_cfg_obj(path)
+    if obj is None:
         return webui_default_cfg()
     return normalize_cfg(obj)
 
@@ -261,7 +375,9 @@ __all__ = [
     "cfg_to_agent_args",
     "default_webui_config_path",
     "ensure_webui_session_secret",
+    "legacy_webui_config_paths",
     "load_cfg",
+    "migrate_legacy_webui_config",
     "normalize_cfg",
     "preserve_secret_fields",
     "redact_cfg",

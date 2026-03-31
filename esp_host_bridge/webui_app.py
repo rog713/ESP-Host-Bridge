@@ -25,6 +25,7 @@ from .config import (
     cfg_from_form,
     default_webui_config_path,
     ensure_webui_session_secret,
+    migrate_legacy_webui_config,
     load_cfg,
     normalize_cfg,
     preserve_secret_fields,
@@ -286,7 +287,7 @@ def create_app(
         raise RuntimeError("Flask is required for webui mode. Install with: pip install flask") from e
 
     app = Flask(__name__, static_folder=None)
-    cfg_path = default_webui_config_path()
+    cfg_path, cfg_migrated, cfg_migrated_from = migrate_legacy_webui_config(default_webui_config_path())
     def _env_flag(name: str, default: bool) -> bool:
         raw = os.environ.get(name)
         if raw is None:
@@ -299,6 +300,8 @@ def create_app(
     self_script = Path(portable_script or str(Path(__file__).resolve()))
     package_module = None if portable_script else ((__package__ or "").split(".", 1)[0] or None)
     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
+    if cfg_migrated and cfg_migrated_from is not None and hasattr(pub, "log_event"):
+        pub.log_event(f"[config migrated] {cfg_migrated_from} -> {cfg_path}")
     initial_cfg = load_cfg(cfg_path)
     initial_cfg, secret_updated = ensure_webui_session_secret(initial_cfg)
     if secret_updated:
