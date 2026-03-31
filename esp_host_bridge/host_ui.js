@@ -181,14 +181,11 @@ function refreshWorkloadLabels(mode) {
     const icon = vmModal.querySelector('.esp-preview-modal-heading .mdi');
     const title = vmModal.querySelector('.esp-preview-modal-title');
     const subtitle = vmModal.querySelector('.esp-preview-modal-subtitle');
-    const footer = vmModal.querySelector('.esp-preview-modal-footer');
-    const footnote = vmModal.querySelector('.esp-preview-modal-footnote');
     if (icon) icon.className = `mdi ${icons.vm}`;
     if (title) title.textContent = labels.vmTitle;
     if (subtitle) subtitle.textContent = labels.vmModalSub;
-    if (footer) footer.hidden = currentWorkloadMode === 'homeassistant';
-    if (footnote) footnote.hidden = currentWorkloadMode === 'homeassistant';
   }
+  renderPreviewActionGroups(lastStatusPayload || {});
 }
 function workloadMetricFlag(metrics, key) {
   if (!metrics || !Object.prototype.hasOwnProperty.call(metrics, key)) return null;
@@ -409,6 +406,13 @@ function metricText(id, text) {
 }
 function previewCards(s) {
   return Array.isArray(s && s.preview_cards) ? s.preview_cards : [];
+}
+function previewActionGroups(s) {
+  return Array.isArray(s && s.preview_action_groups) ? s.preview_action_groups : [];
+}
+function previewActionGroup(s, target) {
+  const needle = String(target || '').trim().toLowerCase();
+  return previewActionGroups(s).find((row) => String(row && row.target || '').trim().toLowerCase() === needle) || null;
 }
 function summaryBarChips(s) {
   return Array.isArray(s && s.summary_bar) ? s.summary_bar : [];
@@ -675,18 +679,71 @@ function closeEspPreviewModal() {
   if (screen) screen.classList.remove('modal-open');
   espPreviewActiveModal = null;
 }
+function renderPreviewActionGroups(s) {
+  ['docker', 'vms'].forEach((target) => {
+    const group = previewActionGroup(s, target);
+    const footer = document.getElementById(target === 'docker' ? 'espDockerModalActions' : 'espVmsModalActions');
+    const footnote = document.getElementById(target === 'docker' ? 'espDockerModalFootnote' : 'espVmsModalFootnote');
+    const actions = Array.isArray(group && group.actions) ? group.actions : [];
+    if (footer) {
+      footer.hidden = actions.length === 0;
+      footer.innerHTML = actions.map((action) => {
+        const cls = escapeHtml(String(action && action.button_class || 'secondary'));
+        const label = escapeHtml(String(action && action.label || action && action.command_id || '--'));
+        const commandId = escapeHtml(String(action && action.command_id || ''));
+        return `<button class="esp-modal-action ${cls}" type="button" data-esp-preview-command="${commandId}">${label}</button>`;
+      }).join('');
+    }
+    if (footnote) {
+      const text = String(group && group.footnote || '');
+      footnote.hidden = !text;
+      footnote.textContent = text;
+    }
+  });
+}
+function applyPreviewCommandOverride(type, name, action) {
+  const patch = (action && typeof action.optimistic_patch === 'object' && action.optimistic_patch) ? action.optimistic_patch : {};
+  if (type === 'docker') {
+    espPreviewDockerOverrides[name] = { ...(espPreviewDockerOverrides[name] || {}), ...patch };
+    return;
+  }
+  if (type === 'vms') {
+    espPreviewVmOverrides[name] = { ...(espPreviewVmOverrides[name] || {}), ...patch };
+  }
+}
 function refreshEspPreviewActiveModal() {
   if (!espPreviewActiveModal) return;
   if (espPreviewActiveModal.type === 'docker') {
     const item = espPreviewDockerItems.find((row) => row && row.name === espPreviewActiveModal.name);
     if (!item) return;
     metricText('espDockerModalName', item.name);
+    const status = document.getElementById('espDockerModalStatus');
+    const detail = document.getElementById('espDockerModalDetail');
+    if (status) {
+      const stateKey = dockerStateKeyFromRaw(item.state);
+      status.className = `esp-state-pill ${stateKey}`;
+      status.textContent = dockerStateLabelFromRaw(item.state);
+    }
+    if (detail) detail.textContent = `Latest state: ${dockerStateLabelFromRaw(item.state)}`;
     return;
   }
   if (espPreviewActiveModal.type === 'vms') {
     const item = espPreviewVmItems.find((row) => row && row.name === espPreviewActiveModal.name);
     if (!item) return;
     metricText('espVmsModalName', item.name);
+    const status = document.getElementById('espVmsModalStatus');
+    const detail = document.getElementById('espVmsModalDetail');
+    if (status) {
+      status.className = `esp-state-pill ${escapeHtml(String(item.stateKey || 'other'))}`;
+      status.textContent = String(item.stateLabel || 'Unknown');
+    }
+    if (detail) {
+      const vcpus = Number(item.vcpus || 0);
+      const memMiB = Number(item.memMiB || 0);
+      detail.textContent = (vcpus || memMiB)
+        ? `${item.stateLabel || 'Unknown'} • ${vcpus || 0} vCPU • ${memMiB || 0} MiB`
+        : `Latest state: ${item.stateLabel || 'Unknown'}`;
+    }
   }
 }
 function openEspPreviewModal(type, index) {
@@ -857,24 +914,21 @@ function initEspPreview() {
         closeEspPreviewModal();
         return;
       }
-      const dockerAction = ev.target.closest('[data-esp-docker-action]');
-      if (dockerAction && espPreviewActiveModal && espPreviewActiveModal.type === 'docker') {
-        const action = dockerAction.getAttribute('data-esp-docker-action');
-        espPreviewDockerOverrides[espPreviewActiveModal.name] = { state: action === 'start' ? 'running' : 'stopped' };
+      const previewAction = ev.target.closest('[data-esp-preview-command]');
+      if (previewAction && espPreviewActiveModal) {
+        const commandId = String(previewAction.getAttribute('data-esp-preview-command') || '').trim();
+        const group = previewActionGroup(lastStatusPayload || {}, espPreviewActiveModal.type);
+        const action = Array.isArray(group && group.actions)
+          ? group.actions.find((row) => String(row && row.command_id || '').trim() === commandId)
+          : null;
+        if (!action) return;
+        if (action.destructive && action.confirmation_text) {
+          if (!window.confirm(String(action.confirmation_text))) return;
+        }
+        applyPreviewCommandOverride(espPreviewActiveModal.type, espPreviewActiveModal.name, action);
         closeEspPreviewModal();
         if (lastStatusPayload) updateEspPreview(lastStatusPayload);
         return;
-      }
-      const vmAction = ev.target.closest('[data-esp-vms-action]');
-      if (vmAction && espPreviewActiveModal && espPreviewActiveModal.type === 'vms') {
-        const action = vmAction.getAttribute('data-esp-vms-action');
-        if (action === 'start' || action === 'restart') {
-          espPreviewVmOverrides[espPreviewActiveModal.name] = { stateKey: 'running', stateLabel: 'Running' };
-        } else {
-          espPreviewVmOverrides[espPreviewActiveModal.name] = { stateKey: 'stopped', stateLabel: 'Stopped' };
-        }
-        closeEspPreviewModal();
-        if (lastStatusPayload) updateEspPreview(lastStatusPayload);
       }
     });
   }

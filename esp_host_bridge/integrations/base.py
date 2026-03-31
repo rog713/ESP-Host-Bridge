@@ -77,6 +77,12 @@ class CommandSpec:
     label: str = ""
     destructive: bool = False
     confirmation_text: str = ""
+    preview_target: Optional[str] = None
+    preview_action_id: Optional[str] = None
+    preview_label: Optional[str] = None
+    preview_button_class: Optional[str] = None
+    preview_homeassistant_enabled: bool = True
+    optimistic_patch: Optional[Dict[str, Any]] = None
 
 
 @dataclass(frozen=True)

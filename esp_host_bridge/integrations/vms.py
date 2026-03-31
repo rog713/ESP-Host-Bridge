@@ -85,6 +85,12 @@ VMS_COMMANDS = (
         patterns=("vm_start:",),
         match_kind="prefix",
         label="Start Virtual Machine",
+        preview_target="vms",
+        preview_action_id="start",
+        preview_label="Start",
+        preview_button_class="start",
+        preview_homeassistant_enabled=False,
+        optimistic_patch={"stateKey": "running", "stateLabel": "Running"},
     ),
     CommandSpec(
         command_id="vm_stop",
@@ -94,6 +100,12 @@ VMS_COMMANDS = (
         label="Stop Virtual Machine",
         destructive=True,
         confirmation_text="Shut down the selected virtual machine",
+        preview_target="vms",
+        preview_action_id="stop",
+        preview_label="Stop",
+        preview_button_class="stop",
+        preview_homeassistant_enabled=False,
+        optimistic_patch={"stateKey": "stopped", "stateLabel": "Stopped"},
     ),
     CommandSpec(
         command_id="vm_force_stop",
@@ -112,6 +124,12 @@ VMS_COMMANDS = (
         label="Restart Virtual Machine",
         destructive=True,
         confirmation_text="Restart the selected virtual machine",
+        preview_target="vms",
+        preview_action_id="restart",
+        preview_label="Restart",
+        preview_button_class="restart",
+        preview_homeassistant_enabled=False,
+        optimistic_patch={"stateKey": "running", "stateLabel": "Running"},
     ),
 )
 

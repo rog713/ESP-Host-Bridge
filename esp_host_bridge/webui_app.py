@@ -42,6 +42,7 @@ from .integrations import (
     monitor_detail_snapshot,
     monitor_detail_payload_snapshot,
     preview_cards_snapshot,
+    preview_action_groups_snapshot,
     redact_agent_command_args,
     summary_bar_snapshot,
 )
@@ -253,6 +254,36 @@ def _render_preview_cards(cards: list[dict[str, Any]]) -> str:
         f'</div>'
         for card in cards
     )
+
+
+def _preview_action_group(groups: list[dict[str, Any]], target: str) -> dict[str, Any]:
+    needle = str(target or "").strip().lower()
+    for group in groups:
+        if str(group.get("target") or "").strip().lower() == needle:
+            return group
+    return {}
+
+
+def _render_preview_action_buttons(groups: list[dict[str, Any]], target: str) -> str:
+    group = _preview_action_group(groups, target)
+    actions = group.get("actions") if isinstance(group, dict) else []
+    if not isinstance(actions, list):
+        actions = []
+    out: list[str] = []
+    for action in actions:
+        command_id = html.escape(str(action.get("command_id") or ""))
+        label = html.escape(str(action.get("label") or action.get("command_id") or "--"))
+        button_class = html.escape(str(action.get("button_class") or "secondary"))
+        out.append(
+            f'<button class="esp-modal-action {button_class}" type="button" '
+            f'data-esp-preview-command="{command_id}">{label}</button>'
+        )
+    return "".join(out)
+
+
+def _render_preview_action_footnote(groups: list[dict[str, Any]], target: str) -> str:
+    group = _preview_action_group(groups, target)
+    return html.escape(str(group.get("footnote") or "")) if isinstance(group, dict) else ""
 
 def page_html(title: str, body: str) -> str:
     mode_toggle_html = _render_mode_toggle_html()
@@ -547,6 +578,7 @@ def create_app(
         homeassistant_mode = is_home_assistant_app_mode()
         summary_bar = summary_bar_snapshot(homeassistant_mode=homeassistant_mode)
         preview_cards = preview_cards_snapshot(homeassistant_mode=homeassistant_mode)
+        preview_action_groups = preview_action_groups_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_dashboard = monitor_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_details = monitor_detail_snapshot(homeassistant_mode=homeassistant_mode)
         if homeassistant_mode:
@@ -942,9 +974,8 @@ def create_app(
                     <div class="esp-state-pill other esp-preview-modal-status" id="espDockerModalStatus"></div>
                     <div class="esp-preview-modal-detail" id="espDockerModalDetail"></div>
                   </div>
-                  <div class="esp-preview-modal-footer">
-                    <button class="esp-modal-action start" type="button" data-esp-docker-action="start">Start</button>
-                    <button class="esp-modal-action stop" type="button" data-esp-docker-action="stop">Stop</button>
+                  <div class="esp-preview-modal-footer" id="espDockerModalActions">
+                    {_render_preview_action_buttons(preview_action_groups, "docker")}
                   </div>
                 </div>
               </div>
@@ -967,12 +998,10 @@ def create_app(
                     <div class="esp-state-pill other esp-preview-modal-status" id="espVmsModalStatus"></div>
                     <div class="esp-preview-modal-detail" id="espVmsModalDetail"></div>
                   </div>
-                  <div class="esp-preview-modal-footer">
-                    <button class="esp-modal-action start" type="button" data-esp-vms-action="start">Start</button>
-                    <button class="esp-modal-action stop" type="button" data-esp-vms-action="stop">Stop</button>
-                    <button class="esp-modal-action restart" type="button" data-esp-vms-action="restart">Restart</button>
+                  <div class="esp-preview-modal-footer" id="espVmsModalActions">
+                    {_render_preview_action_buttons(preview_action_groups, "vms")}
                   </div>
-                  <div class="esp-preview-modal-footnote">Hold Stop on the device for force off</div>
+                  <div class="esp-preview-modal-footnote" id="espVmsModalFootnote">{_render_preview_action_footnote(preview_action_groups, "vms")}</div>
                 </div>
                 </div>
               </div>
@@ -1082,6 +1111,9 @@ window.__HOST_METRICS_BOOT__ = {{
             status.get("last_metrics", {}), homeassistant_mode=is_home_assistant_app_mode()
         )
         status["preview_cards"] = preview_cards_snapshot(
+            homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["preview_action_groups"] = preview_action_groups_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()
         )
         status["summary_bar"] = summary_bar_snapshot(

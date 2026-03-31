@@ -74,6 +74,11 @@ DOCKER_COMMANDS = (
         patterns=("docker_start:",),
         match_kind="prefix",
         label="Start Docker Container",
+        preview_target="docker",
+        preview_action_id="start",
+        preview_label="Start",
+        preview_button_class="start",
+        optimistic_patch={"state": "up"},
     ),
     CommandSpec(
         command_id="docker_stop",
@@ -83,6 +88,11 @@ DOCKER_COMMANDS = (
         label="Stop Docker Container",
         destructive=True,
         confirmation_text="Stop the selected Docker container",
+        preview_target="docker",
+        preview_action_id="stop",
+        preview_label="Stop",
+        preview_button_class="stop",
+        optimistic_patch={"state": "down"},
     ),
 )
 

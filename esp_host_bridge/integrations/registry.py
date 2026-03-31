@@ -214,6 +214,54 @@ def summary_bar_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, 
     return rows
 
 
+def preview_action_groups_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    meta_rows = integration_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
+    meta_map = {
+        str(row.get("integration_id") or "").strip().lower(): row
+        for row in meta_rows
+        if str(row.get("integration_id") or "").strip()
+    }
+    groups: Dict[str, Dict[str, Any]] = {}
+    for spec in get_registered_commands():
+        target = str(spec.preview_target or "").strip().lower()
+        action_id = str(spec.preview_action_id or "").strip()
+        if not target or not action_id:
+            continue
+        if homeassistant_mode and not spec.preview_homeassistant_enabled:
+            continue
+        meta = meta_map.get(target, {})
+        group = groups.setdefault(
+            target,
+            {
+                "target": target,
+                "title": str(meta.get("label") or target.title()),
+                "icon_class": str(meta.get("icon_class") or "mdi-puzzle-outline"),
+                "actions": [],
+                "footnote": "",
+            },
+        )
+        if target == "vms" and not homeassistant_mode:
+            group["footnote"] = "Hold Stop on the device for force off"
+        group["actions"].append(
+            {
+                "command_id": spec.command_id,
+                "action_id": action_id,
+                "label": str(spec.preview_label or spec.label or spec.command_id),
+                "button_class": str(spec.preview_button_class or action_id),
+                "destructive": bool(spec.destructive),
+                "confirmation_text": str(spec.confirmation_text or "").strip() or None,
+                "optimistic_patch": dict(spec.optimistic_patch or {}),
+            }
+        )
+    return [
+        groups[key]
+        for key in sorted(
+            groups.keys(),
+            key=lambda key: (int((meta_map.get(key) or {}).get("sort_order", 99)), key),
+        )
+    ]
+
+
 def _dashboard_card_snapshot(card: DashboardCardSpec, *, homeassistant_mode: bool) -> Dict[str, Any]:
     label = (
         str(card.homeassistant_label or "").strip()

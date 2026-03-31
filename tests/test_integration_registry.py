@@ -22,6 +22,7 @@ from esp_host_bridge.integrations import (
     monitor_detail_payload_snapshot,
     monitor_detail_snapshot,
     preview_cards_snapshot,
+    preview_action_groups_snapshot,
     redact_agent_command_args,
     summary_bar_snapshot,
 )
@@ -226,6 +227,19 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(overview["health_rows"][1]["error_text"], "socket unavailable")
         self.assertEqual(overview["command_groups"][0]["owner_id"], "host")
         self.assertIn("registered commands", overview["command_hint"])
+
+    def test_preview_action_groups_snapshot_derives_modal_actions(self) -> None:
+        default_groups = preview_action_groups_snapshot(homeassistant_mode=False)
+        ha_groups = preview_action_groups_snapshot(homeassistant_mode=True)
+        self.assertEqual([group["target"] for group in default_groups], ["docker", "vms"])
+        docker_group = default_groups[0]
+        vm_group = default_groups[1]
+        self.assertEqual([row["command_id"] for row in docker_group["actions"]], ["docker_start", "docker_stop"])
+        self.assertEqual(docker_group["actions"][1]["destructive"], True)
+        self.assertEqual(docker_group["actions"][1]["optimistic_patch"]["state"], "down")
+        self.assertEqual(vm_group["footnote"], "Hold Stop on the device for force off")
+        self.assertEqual([row["command_id"] for row in vm_group["actions"]], ["vm_start", "vm_stop", "vm_restart"])
+        self.assertEqual([group["target"] for group in ha_groups], ["docker"])
 
     def test_preview_cards_snapshot_exposes_host_and_workload_preview_cards(self) -> None:
         default_rows = preview_cards_snapshot(homeassistant_mode=False)
