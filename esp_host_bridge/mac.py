@@ -19,21 +19,25 @@ if __package__ in {None, ""}:
     sys.path.insert(0, package_root)
     from esp_host_bridge import cli as app_cli  # type: ignore
     from esp_host_bridge import config as cfg_mod  # type: ignore
+    from esp_host_bridge import webui_app as webui_app_mod  # type: ignore
     from esp_host_bridge import metrics as metrics_mod  # type: ignore
     from esp_host_bridge import runtime as hm  # type: ignore
     from esp_host_bridge import serial as serial_mod  # type: ignore
+    from esp_host_bridge.integrations import vms as vms_integration_mod  # type: ignore
 else:
     from . import cli as app_cli
     from . import config as cfg_mod
+    from . import webui_app as webui_app_mod
     from . import metrics as metrics_mod
     from . import runtime as hm
     from . import serial as serial_mod
+    from .integrations import vms as vms_integration_mod
 
 _ORIG_GET_CPU_TEMP_C = metrics_mod.get_cpu_temp_c
 _ORIG_GET_FAN_RPM = metrics_mod.get_fan_rpm
 _ORIG_GET_GPU_METRICS = metrics_mod.get_gpu_metrics
 _ORIG_GET_VIRTUAL_MACHINES_FROM_VIRSH = metrics_mod.get_virtual_machines_from_virsh
-_ORIG_EXECUTE_VIRSH_COMMAND = hm.execute_virsh_command
+_ORIG_VMS_HANDLE_COMMAND = vms_integration_mod.handle_command
 _ORIG_WEBUI_DEFAULT_CFG = cfg_mod.webui_default_cfg
 _ORIG_LIST_CPU_TEMP_SENSOR_CHOICES = metrics_mod.list_cpu_temp_sensor_choices
 _ORIG_LIST_FAN_SENSOR_CHOICES = metrics_mod.list_fan_sensor_choices
@@ -249,19 +253,15 @@ def mac_get_virtual_machines_from_virsh(
     return _ORIG_GET_VIRTUAL_MACHINES_FROM_VIRSH(virsh_binary, virsh_uri, timeout)
 
 
-def mac_execute_virsh_command(
-    cmd: str,
-    virsh_binary: str,
-    virsh_uri: Optional[str],
-    timeout: float,
-) -> bool:
+def mac_handle_vm_command(cmd: str, ctx: Any) -> bool:
+    virsh_binary = str(getattr(getattr(ctx, "args", None), "virsh_binary", "virsh") or "virsh")
     if hm.platform.system() == "Darwin" and not _virsh_binary_available(virsh_binary):
         cmd_l = (cmd or "").strip().lower()
         if cmd_l.startswith(("vm_start:", "vm_stop:", "vm_force_stop:", "vm_restart:")):
             hm.logging.info("ignoring VM command on macOS because virsh is unavailable (CMD=%s)", cmd)
             return True
         return False
-    return _ORIG_EXECUTE_VIRSH_COMMAND(cmd, virsh_binary, virsh_uri, timeout)
+    return _ORIG_VMS_HANDLE_COMMAND(cmd, ctx)
 
 
 def mac_list_cpu_temp_sensor_choices() -> list[str]:
@@ -328,24 +328,18 @@ def mac_list_disk_device_choices() -> list[str]:
 
 def _apply_mac_overrides() -> None:
     metrics_mod.get_cpu_temp_c = mac_get_cpu_temp_c  # type: ignore[assignment]
-    hm.get_cpu_temp_c = mac_get_cpu_temp_c  # type: ignore[assignment]
     metrics_mod.get_fan_rpm = mac_get_fan_rpm  # type: ignore[assignment]
-    hm.get_fan_rpm = mac_get_fan_rpm  # type: ignore[assignment]
     metrics_mod.get_gpu_metrics = mac_get_gpu_metrics  # type: ignore[assignment]
-    hm.get_gpu_metrics = mac_get_gpu_metrics  # type: ignore[assignment]
     metrics_mod.get_virtual_machines_from_virsh = mac_get_virtual_machines_from_virsh  # type: ignore[assignment]
-    hm.get_virtual_machines_from_virsh = mac_get_virtual_machines_from_virsh  # type: ignore[assignment]
-    hm.execute_virsh_command = mac_execute_virsh_command  # type: ignore[assignment]
+    vms_integration_mod.get_virtual_machines_from_virsh = mac_get_virtual_machines_from_virsh  # type: ignore[assignment]
+    vms_integration_mod.handle_command = mac_handle_vm_command  # type: ignore[assignment]
     cfg_mod.webui_default_cfg = mac_webui_default_cfg  # type: ignore[assignment]
-    hm.webui_default_cfg = mac_webui_default_cfg  # type: ignore[assignment]
+    webui_app_mod.webui_default_cfg = mac_webui_default_cfg  # type: ignore[assignment]
     metrics_mod.list_cpu_temp_sensor_choices = mac_list_cpu_temp_sensor_choices  # type: ignore[assignment]
-    hm.list_cpu_temp_sensor_choices = mac_list_cpu_temp_sensor_choices  # type: ignore[assignment]
     metrics_mod.list_fan_sensor_choices = mac_list_fan_sensor_choices  # type: ignore[assignment]
-    hm.list_fan_sensor_choices = mac_list_fan_sensor_choices  # type: ignore[assignment]
     serial_mod.list_serial_port_choices = mac_list_serial_port_choices  # type: ignore[assignment]
-    hm.list_serial_port_choices = mac_list_serial_port_choices  # type: ignore[assignment]
+    webui_app_mod.list_serial_port_choices = mac_list_serial_port_choices  # type: ignore[assignment]
     metrics_mod.list_disk_device_choices = mac_list_disk_device_choices  # type: ignore[assignment]
-    hm.list_disk_device_choices = mac_list_disk_device_choices  # type: ignore[assignment]
 
 
 def main() -> int:
