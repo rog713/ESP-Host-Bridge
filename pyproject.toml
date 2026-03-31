@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "esp-host-bridge"
-version = "2026.03.31.dev12"
+version = "2026.03.31.dev13"
 description = "Local USB CDC bridge and web UI for ESPHome host telemetry"
 readme = "README.md"
 requires-python = ">=3.9"
