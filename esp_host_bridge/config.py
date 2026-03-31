@@ -4,9 +4,18 @@ import json
 import os
 import secrets
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
-from .integrations import CleanerSet, get_registered_config_fields, integration_cfg_to_agent_args, validate_integration_cfg
+from .integrations import (
+    CleanerSet,
+    get_registered_config_fields,
+    get_registered_secret_config_field_names,
+    integration_cfg_to_agent_args,
+    validate_integration_cfg,
+)
+
+REDACTED_SECRET_TEXT = "..."
+_BUILTIN_SECRET_FIELDS = frozenset({"webui_password_hash", "webui_session_secret"})
 
 
 def default_webui_config_path() -> Path:
@@ -147,6 +156,62 @@ def atomic_write_json(path: Path, obj: Dict[str, Any]) -> None:
         f.write(json.dumps(obj, indent=2, sort_keys=True) + "\n")
     tmp.replace(path)
 
+
+def _masked_secret_if_present(value: Any, mask: str = REDACTED_SECRET_TEXT) -> str:
+    return mask if _clean_str(value, "") else ""
+
+
+def secret_placeholder_text(has_secret: bool, mask: str = REDACTED_SECRET_TEXT) -> str:
+    return mask if has_secret else ""
+
+
+def _normalized_secret_keep_tokens(mask: str = REDACTED_SECRET_TEXT) -> set[str]:
+    base = {
+        "",
+        mask,
+        "...",
+        "xxx",
+        "xxxxx",
+        "***",
+        "*****",
+        "•••",
+        "••••",
+    }
+    return {str(token or "").strip().lower() for token in base}
+
+
+def preserve_secret_fields(
+    candidate_cfg: Dict[str, Any],
+    existing_cfg: Dict[str, Any],
+    *,
+    mask: str = REDACTED_SECRET_TEXT,
+    include_builtin: bool = False,
+) -> Dict[str, Any]:
+    updated = dict(candidate_cfg)
+    keep_tokens = _normalized_secret_keep_tokens(mask)
+    names: list[str] = list(get_registered_secret_config_field_names())
+    if include_builtin:
+        names.extend(sorted(_BUILTIN_SECRET_FIELDS))
+    for name in names:
+        existing_value = _clean_str(existing_cfg.get(name), "")
+        if not existing_value:
+            continue
+        submitted_value = _clean_str(updated.get(name), "")
+        if submitted_value.strip().lower() in keep_tokens:
+            updated[name] = existing_value
+    return updated
+
+
+def redact_cfg(cfg: Dict[str, Any], mask: str = REDACTED_SECRET_TEXT) -> Dict[str, Any]:
+    redacted = normalize_cfg(cfg)
+    for name in _BUILTIN_SECRET_FIELDS:
+        if name in redacted:
+            redacted[name] = _masked_secret_if_present(redacted.get(name), mask)
+    for name in get_registered_secret_config_field_names():
+        if name in redacted:
+            redacted[name] = _masked_secret_if_present(redacted.get(name), mask)
+    return redacted
+
 def cfg_to_agent_args(cfg: Dict[str, Any]) -> list[str]:
     argv = [
         "--baud",
@@ -224,6 +289,10 @@ __all__ = [
     "ensure_webui_session_secret",
     "load_cfg",
     "normalize_cfg",
+    "preserve_secret_fields",
+    "redact_cfg",
+    "REDACTED_SECRET_TEXT",
+    "secret_placeholder_text",
     "validate_cfg",
     "webui_default_cfg",
 ]

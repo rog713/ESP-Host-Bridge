@@ -19,6 +19,7 @@ class ConfigFieldSpec:
     default: Any
     checkbox: bool = False
     secret: bool = False
+    cli_flag: Optional[str] = None
 
 
 @dataclass

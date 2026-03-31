@@ -16,10 +16,10 @@ VMS_WARN_INTERVAL_SECONDS = 30.0
 VMS_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
 
 VMS_CONFIG_FIELDS = (
-    ConfigFieldSpec("virsh_binary", "str", "virsh"),
-    ConfigFieldSpec("virsh_uri", "str", ""),
+    ConfigFieldSpec("virsh_binary", "str", "virsh", cli_flag="--virsh-binary"),
+    ConfigFieldSpec("virsh_uri", "str", "", cli_flag="--virsh-uri"),
     ConfigFieldSpec("vm_polling_enabled", "bool", True, checkbox=True),
-    ConfigFieldSpec("vm_interval", "float", 5.0),
+    ConfigFieldSpec("vm_interval", "float", 5.0, cli_flag="--vm-interval"),
 )
 
 

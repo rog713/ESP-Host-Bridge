@@ -20,15 +20,20 @@ from urllib.parse import quote_plus
 from .config import (
     _clean_bool,
     _clean_str,
+    REDACTED_SECRET_TEXT,
     atomic_write_json,
     cfg_from_form,
     default_webui_config_path,
     ensure_webui_session_secret,
     load_cfg,
     normalize_cfg,
+    preserve_secret_fields,
+    redact_cfg,
+    secret_placeholder_text,
     validate_cfg,
     webui_default_cfg,
 )
+from .integrations import redact_agent_command_args
 from .metrics import detect_hardware_choices
 from .runtime import (
     APP_VERSION,
@@ -458,6 +463,15 @@ def create_app(
         vm_list_label = "Integrations" if homeassistant_mode else "Virtual Machines"
         vm_waiting_text = "Waiting for integration data..." if homeassistant_mode else "Waiting for VM data..."
         vm_show_all = "Show all integrations" if homeassistant_mode else "Show all virtual machines"
+        saved_webui_password_placeholder = secret_placeholder_text(
+            bool(_clean_str(cfg.get("webui_password_hash"), "")),
+            REDACTED_SECRET_TEXT,
+        )
+        webui_password_hint = (
+            f'Leave blank to keep the current password. Stored value is masked as <code>{html.escape(saved_webui_password_placeholder)}</code>. Disable protection to remove it.'
+            if saved_webui_password_placeholder
+            else "Leave blank to keep the current password. Disable protection to remove it."
+        )
         body = f"""
 <div id=\"setupView\" class=\"grid\">
   <div class=\"card\">
@@ -509,7 +523,7 @@ def create_app(
       </div></details>
       <details class=\"section\" data-section-key=\"direct_webui_security\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-lock-outline\"></span></span>Direct Web UI Security</summary><div class=\"section-body\">
       <div class=\"row\"><label>Protect Direct Web UI</label><div><input name=\"webui_auth_enabled\" type=\"checkbox\" {'checked' if cfg.get('webui_auth_enabled') else ''}><div class=\"hint\">Requires a password for direct Web UI access.</div></div></div>
-      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\"><div class=\"hint\">Leave blank to keep the current password. Disable protection to remove it.</div></div></div>
+      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"{html.escape(saved_webui_password_placeholder)}\"><div class=\"hint\">{webui_password_hint}</div></div></div>
       </div></details>
       <div class=\"actions form-actions-sticky\">
         <button type=\"submit\">Save + Restart</button>
@@ -935,6 +949,7 @@ window.__HOST_METRICS_BOOT__ = {{
     def save() -> Any:
         cfg = cfg_from_form(request.form)
         existing_cfg = load_cfg(cfg_path)
+        cfg = preserve_secret_fields(cfg, existing_cfg)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         auth_enabled = _clean_bool(cfg.get("webui_auth_enabled"), False)
@@ -980,11 +995,15 @@ window.__HOST_METRICS_BOOT__ = {{
 
     @app.get("/api/status")
     def api_status() -> Any:
-        return jsonify(pub.status())
+        status = dict(pub.status())
+        cmd = status.get("cmd")
+        if isinstance(cmd, list):
+            status["cmd"] = redact_agent_command_args(cmd, REDACTED_SECRET_TEXT)
+        return jsonify(status)
 
     @app.get("/api/config")
     def api_config() -> Any:
-        return jsonify(load_cfg(cfg_path))
+        return jsonify(redact_cfg(load_cfg(cfg_path), REDACTED_SECRET_TEXT))
 
     @app.get("/api/ports")
     def api_ports() -> Any:
@@ -1096,6 +1115,7 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
+        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)
@@ -1116,6 +1136,7 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
+        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)

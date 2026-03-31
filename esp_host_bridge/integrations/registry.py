@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Sequence
 
 from .base import CleanerSet, CommandContext, ConfigFieldSpec, IntegrationSpec, PollContext
 from .docker import DOCKER_INTEGRATION
@@ -21,6 +21,14 @@ def get_registered_config_fields() -> tuple[ConfigFieldSpec, ...]:
     for integration in _REGISTERED_INTEGRATIONS:
         out.extend(integration.config_fields)
     return tuple(out)
+
+
+def get_registered_secret_config_fields() -> tuple[ConfigFieldSpec, ...]:
+    return tuple(field for field in get_registered_config_fields() if field.secret)
+
+
+def get_registered_secret_config_field_names() -> tuple[str, ...]:
+    return tuple(field.name for field in get_registered_secret_config_fields())
 
 
 def validate_integration_cfg(cfg: Dict[str, Any], cleaners: CleanerSet) -> list[str]:
@@ -57,3 +65,28 @@ def dispatch_integration_command(cmd: str, ctx: CommandContext) -> bool:
         if integration.handle_command(cmd, ctx):
             return True
     return False
+
+
+def redact_agent_command_args(argv: Sequence[Any], mask: str = "...") -> list[Any]:
+    redacted = list(argv)
+    secret_flags = {
+        str(field.cli_flag or "").strip()
+        for field in get_registered_secret_config_fields()
+        if str(field.cli_flag or "").strip()
+    }
+    if not secret_flags:
+        return redacted
+    i = 0
+    while i < len(redacted):
+        part = str(redacted[i] or "")
+        if part in secret_flags and i + 1 < len(redacted):
+            redacted[i + 1] = mask
+            i += 2
+            continue
+        for flag in secret_flags:
+            prefix = flag + "="
+            if part.startswith(prefix):
+                redacted[i] = prefix + mask
+                break
+        i += 1
+    return redacted

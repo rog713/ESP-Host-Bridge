@@ -18,9 +18,9 @@ DOCKER_WARN_INTERVAL_SECONDS = 30.0
 DOCKER_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "unhealthy": 0}
 
 DOCKER_CONFIG_FIELDS = (
-    ConfigFieldSpec("docker_socket", "str", "/var/run/docker.sock"),
+    ConfigFieldSpec("docker_socket", "str", "/var/run/docker.sock", cli_flag="--docker-socket"),
     ConfigFieldSpec("docker_polling_enabled", "bool", True, checkbox=True),
-    ConfigFieldSpec("docker_interval", "float", 2.0),
+    ConfigFieldSpec("docker_interval", "float", 2.0, cli_flag="--docker-interval"),
 )
 
 
