@@ -17,6 +17,10 @@ It runs on the host, reads local metrics, and sends compact updates to the ESP o
 
 ![ESP Host Bridge Web UI](images/webui-dashboard.png)
 
+Development status payload contract:
+
+- `docs/status-contract.md`
+
 ## Also Available
 
 If you want the Home Assistant add-on instead of the standalone Linux install, use:
