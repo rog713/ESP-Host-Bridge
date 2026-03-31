@@ -37,6 +37,7 @@ from .config import (
 from .integrations import (
     get_integration_spec,
     integration_dashboard_snapshot,
+    integration_overview_snapshot,
     monitor_dashboard_snapshot,
     monitor_detail_snapshot,
     monitor_detail_payload_snapshot,
@@ -1085,6 +1086,11 @@ window.__HOST_METRICS_BOOT__ = {{
         )
         status["summary_bar"] = summary_bar_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["integration_overview"] = integration_overview_snapshot(
+            status.get("integration_health", {}),
+            status.get("command_registry", []),
+            homeassistant_mode=is_home_assistant_app_mode(),
         )
         return jsonify(status)
 

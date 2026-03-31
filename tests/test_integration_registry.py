@@ -17,6 +17,7 @@ from esp_host_bridge.integrations import (
     get_registered_config_fields,
     integration_dashboard_snapshot,
     integration_health_snapshot,
+    integration_overview_snapshot,
     monitor_dashboard_snapshot,
     monitor_detail_payload_snapshot,
     monitor_detail_snapshot,
@@ -192,6 +193,39 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual([row["name"] for row in payloads["vm_list"]["items"]], ["ubuntu", "test"])
         self.assertEqual(payloads["vm_list"]["items"][0]["state_class"], "running")
         self.assertEqual(payloads["vm_list"]["hint"], "2 virtual machines detected")
+
+    def test_integration_overview_snapshot_derives_cards_rows_and_groups(self) -> None:
+        health = {
+            "host": {
+                "enabled": True,
+                "available": True,
+                "source": "local",
+                "last_refresh_age_s": 3,
+                "last_success_age_s": 5,
+                "last_error": None,
+                "commands": ["host_shutdown", "host_restart"],
+            },
+            "docker": {
+                "enabled": True,
+                "available": False,
+                "source": "docker socket",
+                "last_refresh_age_s": 12,
+                "last_success_age_s": 90,
+                "last_error": "socket unavailable",
+                "commands": ["docker_start", "docker_stop"],
+            },
+        }
+        commands = command_registry_snapshot()
+        overview = integration_overview_snapshot(health, commands, homeassistant_mode=False)
+        self.assertEqual(overview["ready_text"], "1/2 ready")
+        self.assertEqual(overview["dashboard_cards"][0]["integration_id"], "host")
+        self.assertEqual(overview["dashboard_cards"][0]["status_text"], "Ready")
+        self.assertEqual(overview["dashboard_cards"][1]["integration_id"], "docker")
+        self.assertEqual(overview["dashboard_cards"][1]["status_class"], "danger")
+        self.assertEqual(overview["health_chips"][0]["text"], "Telemetry Sources: Ready")
+        self.assertEqual(overview["health_rows"][1]["error_text"], "socket unavailable")
+        self.assertEqual(overview["command_groups"][0]["owner_id"], "host")
+        self.assertIn("registered commands", overview["command_hint"])
 
     def test_preview_cards_snapshot_exposes_host_and_workload_preview_cards(self) -> None:
         default_rows = preview_cards_snapshot(homeassistant_mode=False)

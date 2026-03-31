@@ -468,6 +468,7 @@ function previewCardText(card, metrics, workloadMode) {
 }
 function updateSummaryBarFromMetadata(s, workloadMode) {
   const metrics = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  const overview = (s && s.integration_overview && typeof s.integration_overview === 'object') ? s.integration_overview : {};
   summaryBarChips(s).forEach((chip) => {
     const id = `sum${String(chip && chip.chip_id || '').trim()}`;
     switch (String(chip && chip.render_kind || '')) {
@@ -482,10 +483,7 @@ function updateSummaryBarFromMetadata(s, workloadMode) {
         metricText(id, fmtAgeSec(s.last_metrics_age_s));
         break;
       case 'integration_ready': {
-        const health = (s && s.integration_health && typeof s.integration_health === 'object') ? s.integration_health : {};
-        const rows = Object.keys(health).map((key) => health[key]).filter((row) => row && row.enabled !== false);
-        const ready = rows.filter((row) => row.available === true && !row.last_error).length;
-        metricText(id, rows.length ? `${ready}/${rows.length} ready` : '--');
+        metricText(id, String(overview.ready_text || '--'));
         break;
       }
       case 'metric_text': {
@@ -1223,90 +1221,68 @@ function integrationHealthText(row) {
   return 'Unknown';
 }
 function renderIntegrationOverview(s) {
-  const metaRows = integrationDashboardRows(s);
-  const metaMap = new Map(metaRows.map((row) => [String(row && row.integration_id || '').trim().toLowerCase(), row]));
+  const overview = (s && s.integration_overview && typeof s.integration_overview === 'object') ? s.integration_overview : {};
   const cardsBox = document.getElementById('integrationDashboardCards');
   const chipsBox = document.getElementById('integrationHealthChips');
   const healthBox = document.getElementById('integrationHealthList');
   const cmdBox = document.getElementById('commandRegistryList');
   const cmdHint = document.getElementById('commandRegistryHint');
-  const sumEl = document.getElementById('sumIntegrations');
-  const health = (s && s.integration_health && typeof s.integration_health === 'object') ? s.integration_health : {};
-  const rows = Object.keys(health)
-    .sort((a, b) => {
-      const orderA = Number((metaMap.get(a) || {}).sort_order);
-      const orderB = Number((metaMap.get(b) || {}).sort_order);
-      return (Number.isFinite(orderA) ? orderA : 99) - (Number.isFinite(orderB) ? orderB : 99) || a.localeCompare(b);
-    })
-    .map((key) => ({ id: key, row: health[key] }));
-  const enabledCount = rows.filter(({ row }) => row && row.enabled !== false).length;
-  const readyCount = rows.filter(({ row }) => row && row.enabled !== false && row.available === true && !row.last_error).length;
-  if (sumEl) {
-    sumEl.textContent = enabledCount ? `${readyCount}/${enabledCount} ready` : '--';
-  }
+  const dashboardCards = Array.isArray(overview.dashboard_cards) ? overview.dashboard_cards : [];
+  const healthChips = Array.isArray(overview.health_chips) ? overview.health_chips : [];
+  const healthRows = Array.isArray(overview.health_rows) ? overview.health_rows : [];
+  const commandGroups = Array.isArray(overview.command_groups) ? overview.command_groups : [];
   if (cardsBox) {
-    if (!metaRows.length) {
+    if (!dashboardCards.length) {
       cardsBox.innerHTML = '<div class="monitor-note">Waiting for integration metadata...</div>';
     } else {
-      cardsBox.innerHTML = metaRows.map((meta) => {
-        const id = String(meta && meta.integration_id || '').trim().toLowerCase();
-        const row = health[id] || null;
-        const icon = escapeHtml(String(meta && meta.icon_class || 'mdi-puzzle-outline'));
-        const label = escapeHtml(String(meta && meta.label || integrationLabel(id)));
-        const source = row && row.source ? escapeHtml(String(row.source)) : '--';
-        const commands = Number(meta && meta.command_count);
-        const commandsText = Number.isFinite(commands) ? `${commands} command${commands === 1 ? '' : 's'}` : '--';
-        const statusClass = integrationHealthClass(row);
-        const statusText = escapeHtml(integrationHealthText(row));
+      cardsBox.innerHTML = dashboardCards.map((card) => {
+        const icon = escapeHtml(String(card && card.icon_class || 'mdi-puzzle-outline'));
+        const label = escapeHtml(String(card && card.label || 'Integration'));
+        const sourceText = escapeHtml(String(card && card.source_text || 'Source: --'));
+        const commandsText = escapeHtml(String(card && card.commands_text || '--'));
+        const statusClass = escapeHtml(String(card && card.status_class || ''));
+        const statusText = escapeHtml(String(card && card.status_text || 'Unknown'));
         return `<div class="integration-dashboard-card">
           <div class="integration-dashboard-head">
             <div class="integration-dashboard-title"><span class="mdi ${icon}" aria-hidden="true"></span>${label}</div>
             <span class="status-pill ${statusClass}">${statusText}</span>
           </div>
-          <div class="integration-dashboard-meta">Source: ${source}</div>
-          <div class="integration-dashboard-meta">${escapeHtml(commandsText)}</div>
+          <div class="integration-dashboard-meta">${sourceText}</div>
+          <div class="integration-dashboard-meta">${commandsText}</div>
         </div>`;
       }).join('');
     }
   }
   if (chipsBox) {
-    if (!rows.length) {
+    if (!healthChips.length) {
       chipsBox.innerHTML = '';
     } else {
-      chipsBox.innerHTML = rows.map(({ id, row }) => {
-        const meta = metaMap.get(id);
-        const label = escapeHtml(String((meta && meta.label) || integrationLabel(id)));
-        const statusClass = integrationHealthClass(row);
-        const statusText = escapeHtml(integrationHealthText(row));
-        return `<div class="status-pill ${statusClass}">${label}: ${statusText}</div>`;
+      chipsBox.innerHTML = healthChips.map((chip) => {
+        const statusClass = escapeHtml(String(chip && chip.status_class || ''));
+        const text = escapeHtml(String(chip && chip.text || ''));
+        return `<div class="status-pill ${statusClass}">${text}</div>`;
       }).join('');
     }
   }
   if (healthBox) {
-    if (!rows.length) {
+    if (!healthRows.length) {
       healthBox.innerHTML = '<div class="monitor-note">Waiting for integration health...</div>';
     } else {
-      healthBox.innerHTML = rows.map(({ id, row }) => {
-        const statusClass = integrationHealthClass(row);
-        const refreshAge = Number(row && row.last_refresh_age_s);
-        const successAge = Number(row && row.last_success_age_s);
-        const source = row && row.source ? `Source: ${escapeHtml(String(row.source))}` : 'Source: --';
-        const refreshText = Number.isFinite(refreshAge) ? `Refreshed ${escapeHtml(fmtAgeSec(refreshAge))}` : 'Refreshed --';
-        const successText = Number.isFinite(successAge) ? `Last success ${escapeHtml(fmtAgeSec(successAge))}` : 'Last success --';
-        const commands = Array.isArray(row && row.commands) ? row.commands : [];
-        const commandHtml = commands.length
-          ? `<div class="integration-health-tags">${commands.map((cmd) => `<span>${escapeHtml(String(cmd))}</span>`).join('')}</div>`
+      healthBox.innerHTML = healthRows.map((row) => {
+        const statusClass = escapeHtml(String(row && row.status_class || ''));
+        const commandHtml = Array.isArray(row && row.commands) && row.commands.length
+          ? `<div class="integration-health-tags">${row.commands.map((cmd) => `<span>${escapeHtml(String(cmd))}</span>`).join('')}</div>`
           : '';
-        const errorHtml = row && row.last_error
-          ? `<div class="integration-health-error">Last error: ${escapeHtml(String(row.last_error))}</div>`
+        const errorHtml = row && row.error_text
+          ? `<div class="integration-health-error">Last error: ${escapeHtml(String(row.error_text))}</div>`
           : '';
         return `<div class="integration-health-row">
           <div class="integration-health-head">
-            <div class="integration-health-title">${escapeHtml(integrationLabel(id))}</div>
-            <span class="status-pill ${statusClass}">${escapeHtml(integrationHealthText(row))}</span>
+            <div class="integration-health-title">${escapeHtml(String(row && row.title || 'Integration'))}</div>
+            <span class="status-pill ${statusClass}">${escapeHtml(String(row && row.status_text || 'Unknown'))}</span>
           </div>
-          <div class="integration-health-meta">${source}</div>
-          <div class="integration-health-meta">${refreshText} • ${successText}</div>
+          <div class="integration-health-meta">${escapeHtml(String(row && row.source_text || 'Source: --'))}</div>
+          <div class="integration-health-meta">${escapeHtml(String(row && row.refresh_text || 'Refreshed --'))} • ${escapeHtml(String(row && row.success_text || 'Last success --'))}</div>
           ${errorHtml}
           ${commandHtml}
         </div>`;
@@ -1314,26 +1290,18 @@ function renderIntegrationOverview(s) {
     }
   }
 
-  const commands = Array.isArray(s && s.command_registry) ? s.command_registry : [];
   if (cmdHint) {
-    cmdHint.textContent = commands.length ? `${commands.length} registered commands` : 'Waiting for command registry...';
+    cmdHint.textContent = String(overview.command_hint || 'Waiting for command registry...');
   }
   if (cmdBox) {
-    if (!commands.length) {
+    if (!commandGroups.length) {
       cmdBox.innerHTML = '<div class="monitor-note">Waiting for command registry...</div>';
     } else {
-      const grouped = new Map();
-      commands.forEach((entry) => {
-        const owner = String(entry && entry.owner_id || '').trim() || 'other';
-        if (!grouped.has(owner)) grouped.set(owner, []);
-        grouped.get(owner).push(entry);
-      });
-      cmdBox.innerHTML = Array.from(grouped.entries()).map(([owner, items]) => {
-        const meta = metaMap.get(owner);
-        const ownerTitle = meta && meta.action_group_title ? String(meta.action_group_title) : integrationLabel(owner);
-        const ownerIcon = meta && meta.icon_class ? `mdi ${escapeHtml(String(meta.icon_class))}` : '';
-        const rowsHtml = items.map((entry) => {
-          const patterns = Array.isArray(entry && entry.patterns) ? entry.patterns.join(', ') : '--';
+      cmdBox.innerHTML = commandGroups.map((group) => {
+        const ownerTitle = String(group && group.title || 'Commands');
+        const ownerIcon = group && group.icon_class ? `mdi ${escapeHtml(String(group.icon_class))}` : '';
+        const rowsHtml = (Array.isArray(group && group.rows) ? group.rows : []).map((entry) => {
+          const patterns = String(entry && entry.patterns_text || '--');
           const destructive = entry && entry.destructive ? '<span class="command-registry-flag">destructive</span>' : '';
           const label = String(entry && (entry.label || entry.command_id) || '--');
           return `<div class="command-registry-row">

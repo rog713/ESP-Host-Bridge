@@ -109,6 +109,42 @@ def integration_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[
     return rows
 
 
+def _integration_status_class(row: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(row, dict) or row.get("enabled") is False:
+        return ""
+    if row.get("available") is False or row.get("last_error"):
+        return "danger"
+    if row.get("available") is True:
+        return "ok"
+    return "warn"
+
+
+def _integration_status_text(row: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(row, dict):
+        return "Unknown"
+    if row.get("enabled") is False:
+        return "Disabled"
+    if row.get("available") is False:
+        return "Unavailable"
+    if row.get("available") is True:
+        return "Ready"
+    return "Unknown"
+
+
+def _fmt_age_sec(value: Any) -> str:
+    try:
+        x = max(0.0, float(value))
+    except Exception:
+        return "--"
+    if x < 2.0:
+        return "just now"
+    if x < 60.0:
+        return f"{round(x)}s ago"
+    if x < 3600.0:
+        return f"{round(x / 60.0)}m ago"
+    return f"{round(x / 3600.0)}h ago"
+
+
 def _preview_card_snapshot(
     card: PreviewCardSpec, *, homeassistant_mode: bool, sort_order: int, preview_order: int
 ) -> Dict[str, Any]:
@@ -380,6 +416,127 @@ def command_registry_snapshot() -> list[Dict[str, Any]]:
             }
         )
     return out
+
+
+def integration_overview_snapshot(
+    integration_health: Dict[str, Dict[str, Any]],
+    command_registry: Sequence[Dict[str, Any]],
+    *,
+    homeassistant_mode: bool = False,
+) -> Dict[str, Any]:
+    meta_rows = integration_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
+    meta_map = {
+        str(row.get("integration_id") or "").strip().lower(): row
+        for row in meta_rows
+        if str(row.get("integration_id") or "").strip()
+    }
+    health = integration_health if isinstance(integration_health, dict) else {}
+    command_rows = list(command_registry or [])
+
+    health_rows = [
+        (key, row)
+        for key, row in health.items()
+        if isinstance(row, dict)
+    ]
+    health_rows.sort(
+        key=lambda item: (
+            int((meta_map.get(item[0]) or {}).get("sort_order", 99)),
+            item[0],
+        )
+    )
+
+    enabled_rows = [row for _, row in health_rows if row.get("enabled") is not False]
+    ready_count = sum(1 for row in enabled_rows if row.get("available") is True and not row.get("last_error"))
+    ready_text = f"{ready_count}/{len(enabled_rows)} ready" if enabled_rows else "--"
+
+    dashboard_cards: list[Dict[str, Any]] = []
+    for meta in meta_rows:
+        integration_id = str(meta.get("integration_id") or "").strip().lower()
+        row = health.get(integration_id) if integration_id else None
+        command_count = int(meta.get("command_count", 0)) if str(meta.get("command_count", "")).strip() else 0
+        dashboard_cards.append(
+            {
+                "integration_id": integration_id,
+                "icon_class": str(meta.get("icon_class") or "mdi-puzzle-outline"),
+                "label": str(meta.get("label") or integration_id or "Integration"),
+                "status_class": _integration_status_class(row),
+                "status_text": _integration_status_text(row),
+                "source_text": f"Source: {str(row.get('source') or '--')}" if isinstance(row, dict) else "Source: --",
+                "commands_text": f"{command_count} command{'' if command_count == 1 else 's'}" if command_count >= 0 else "--",
+            }
+        )
+
+    health_chips: list[Dict[str, Any]] = []
+    health_detail_rows: list[Dict[str, Any]] = []
+    for integration_id, row in health_rows:
+        meta = meta_map.get(integration_id, {})
+        label = str(meta.get("label") or integration_id.replace("_", " ").title() or "Integration")
+        status_text = _integration_status_text(row)
+        status_class = _integration_status_class(row)
+        commands = [str(cmd) for cmd in (row.get("commands") or []) if str(cmd).strip()]
+        health_chips.append(
+            {
+                "integration_id": integration_id,
+                "label": label,
+                "status_class": status_class,
+                "status_text": status_text,
+                "text": f"{label}: {status_text}",
+            }
+        )
+        health_detail_rows.append(
+            {
+                "integration_id": integration_id,
+                "title": label,
+                "status_class": status_class,
+                "status_text": status_text,
+                "source_text": f"Source: {str(row.get('source') or '--')}",
+                "refresh_text": f"Refreshed {_fmt_age_sec(row.get('last_refresh_age_s'))}",
+                "success_text": f"Last success {_fmt_age_sec(row.get('last_success_age_s'))}",
+                "error_text": str(row.get("last_error") or "").strip() or None,
+                "commands": commands,
+            }
+        )
+
+    grouped: Dict[str, list[Dict[str, Any]]] = {}
+    for entry in command_rows:
+        owner = str(entry.get("owner_id") or "").strip().lower() or "other"
+        grouped.setdefault(owner, []).append(entry)
+    command_groups: list[Dict[str, Any]] = []
+    for owner_id, items in sorted(
+        grouped.items(),
+        key=lambda item: (int((meta_map.get(item[0]) or {}).get("sort_order", 99)), item[0]),
+    ):
+        meta = meta_map.get(owner_id, {})
+        title = str(meta.get("action_group_title") or meta.get("label") or owner_id.replace("_", " ").title() or "Commands")
+        icon_class = str(meta.get("icon_class") or "mdi-puzzle-outline")
+        rows = []
+        for entry in items:
+            patterns = entry.get("patterns") or []
+            rows.append(
+                {
+                    "command_id": str(entry.get("command_id") or ""),
+                    "label": str(entry.get("label") or entry.get("command_id") or "--"),
+                    "patterns_text": ", ".join(str(p) for p in patterns) if isinstance(patterns, list) else "--",
+                    "destructive": bool(entry.get("destructive")),
+                }
+            )
+        command_groups.append(
+            {
+                "owner_id": owner_id,
+                "title": title,
+                "icon_class": icon_class,
+                "rows": rows,
+            }
+        )
+
+    return {
+        "ready_text": ready_text,
+        "command_hint": f"{len(command_rows)} registered commands" if command_rows else "Waiting for command registry...",
+        "dashboard_cards": dashboard_cards,
+        "health_chips": health_chips,
+        "health_rows": health_detail_rows,
+        "command_groups": command_groups,
+    }
 
 
 def integration_health_snapshot(polled: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
