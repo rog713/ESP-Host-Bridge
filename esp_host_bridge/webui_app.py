@@ -667,15 +667,16 @@ def create_app(
                       <div class="esp-dualmetric-dot left"></div>
                       <div class="esp-dualmetric-lbl left">RX</div>
                       <div class="esp-dualmetric-val left" id="espNetRxVal">--</div>
-                      <div class="esp-dualmetric-unit left">MB/s</div>
+                      <div class="esp-dualmetric-unit left">Mb/s</div>
                       <div class="esp-dualmetric-dot right"></div>
                       <div class="esp-dualmetric-lbl right">TX</div>
                       <div class="esp-dualmetric-val right" id="espNetTxVal">--</div>
-                      <div class="esp-dualmetric-unit right">MB/s</div>
+                      <div class="esp-dualmetric-unit right">Mb/s</div>
                     </div>
                     <div class="esp-sys-chartbox">
                       <div id="espNetGraph"></div>
                       <div class="esp-sys-loading" id="espNetLoading">Loading...</div>
+                      <div class="esp-sys-scale" id="espNetScale">10 Mb/s</div>
                     </div>
                   </div>
                 </div>
