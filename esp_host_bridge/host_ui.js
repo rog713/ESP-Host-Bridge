@@ -450,10 +450,10 @@ function fmtEspUptime(v) {
   const m = Math.floor((n % 3600) / 60);
   return `${d}d ${h}h ${m}m`;
 }
-function fmtEspMBps(kbps) {
+function fmtEspMbps(kbps) {
   const n = Number(kbps);
   if (!Number.isFinite(n)) return '--';
-  const mbps = n / 8000;
+  const mbps = n / 1000;
   if (mbps < 10) return mbps.toFixed(2);
   if (mbps < 100) return mbps.toFixed(1);
   return Math.round(mbps).toString();
@@ -1450,8 +1450,8 @@ function updateEspPreview(s) {
   const gpuTempHist = historyOf(s,'GPUT');
   const host = (s && typeof s.host_name === 'string') ? s.host_name.trim() : '';
 
-  metricText('espNetRxVal', rx !== null ? fmtEspMBps(rx) : '--');
-  metricText('espNetTxVal', tx !== null ? fmtEspMBps(tx) : '--');
+  metricText('espNetRxVal', rx !== null ? fmtEspMbps(rx) : '--');
+  metricText('espNetTxVal', tx !== null ? fmtEspMbps(tx) : '--');
   const netGraphEl = document.getElementById('espNetGraph');
   const netLoadingEl = document.getElementById('espNetLoading');
   if (netGraphEl) netGraphEl.innerHTML = espDualGraphSvg(rxHist, txHist);

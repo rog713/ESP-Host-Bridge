@@ -399,11 +399,11 @@ HOST_PREVIEW_PAGES = (
         render_data={
             "left_label": "RX",
             "left_value_id": "espNetRxVal",
-            "left_unit": "MB/s",
+            "left_unit": "Mb/s",
             "left_dot_class": "left",
             "right_label": "TX",
             "right_value_id": "espNetTxVal",
-            "right_unit": "MB/s",
+            "right_unit": "Mb/s",
             "right_dot_class": "right",
             "graph_id": "espNetGraph",
             "loading_id": "espNetLoading",

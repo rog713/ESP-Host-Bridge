@@ -4645,7 +4645,7 @@ lvgl:
                                     text_color: 0xD1D5DB
                                     text_font: arimo_14
                                     bg_opa: TRANSP
-                                    text: "MB/s"
+                                    text: "Mb/s"
 
                                 - obj:
                                     id: info_net_tx_dot
@@ -4682,7 +4682,7 @@ lvgl:
                                     text_color: 0xD1D5DB
                                     text_font: arimo_14
                                     bg_opa: TRANSP
-                                    text: "MB/s"
+                                    text: "Mb/s"
 
                           - obj:
                               id: info_net_chart_box
@@ -8372,11 +8372,11 @@ script:
             lv_obj_set_style_text_color(id(info_net_rx_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xE0, 0xF2, 0xFE), 0);
             if (have_data && !stale) {
               const float kbps = id(net_rx_kbps_last);
-              const float MBps = kbps / 8000.0f;  // kbps (kilobits/s) -> MB/s (megabytes/s)
+              const float Mbps = kbps / 1000.0f;  // kbps (kilobits/s) -> Mb/s (megabits/s)
               char buf[24];
-              if (MBps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", MBps);
-              else if (MBps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", MBps);
-              else snprintf(buf, sizeof(buf), "%.0f", MBps);
+              if (Mbps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", Mbps);
+              else if (Mbps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", Mbps);
+              else snprintf(buf, sizeof(buf), "%.0f", Mbps);
               lv_label_set_text(id(info_net_rx_value), buf);
             } else if (!have_data) {
               lv_label_set_text(id(info_net_rx_value), "--");
@@ -8388,11 +8388,11 @@ script:
             lv_obj_set_style_text_color(id(info_net_tx_value), stale ? lv_color_make(0x9C, 0xA3, 0xAF) : lv_color_make(0xF3, 0xE8, 0xFF), 0);
             if (have_data && !stale) {
               const float kbps = id(net_tx_kbps_last);
-              const float MBps = kbps / 8000.0f;
+              const float Mbps = kbps / 1000.0f;
               char buf[24];
-              if (MBps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", MBps);
-              else if (MBps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", MBps);
-              else snprintf(buf, sizeof(buf), "%.0f", MBps);
+              if (Mbps < 10.0f) snprintf(buf, sizeof(buf), "%.2f", Mbps);
+              else if (Mbps < 100.0f) snprintf(buf, sizeof(buf), "%.1f", Mbps);
+              else snprintf(buf, sizeof(buf), "%.0f", Mbps);
               lv_label_set_text(id(info_net_tx_value), buf);
             } else if (!have_data) {
               lv_label_set_text(id(info_net_tx_value), "--");
