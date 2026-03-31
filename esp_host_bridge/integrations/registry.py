@@ -8,6 +8,7 @@ from .base import (
     CommandSpec,
     ConfigFieldSpec,
     DashboardCardSpec,
+    DashboardDetailSpec,
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
@@ -135,6 +136,42 @@ def monitor_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[Dict
     for integration in _REGISTERED_INTEGRATIONS:
         for group in integration.dashboard_groups:
             rows.append(_dashboard_group_snapshot(integration, group, homeassistant_mode=homeassistant_mode))
+    return rows
+
+
+def _dashboard_detail_snapshot(detail: DashboardDetailSpec, *, homeassistant_mode: bool) -> Dict[str, Any]:
+    title = (
+        str(detail.homeassistant_title or "").strip()
+        if homeassistant_mode and str(detail.homeassistant_title or "").strip()
+        else str(detail.title or detail.detail_id).strip()
+    )
+    waiting_text = (
+        str(detail.homeassistant_waiting_text or "").strip()
+        if homeassistant_mode and str(detail.homeassistant_waiting_text or "").strip()
+        else str(detail.waiting_text or "").strip()
+    )
+    show_all_text = (
+        str(detail.homeassistant_show_all_text or "").strip()
+        if homeassistant_mode and str(detail.homeassistant_show_all_text or "").strip()
+        else str(detail.show_all_text or "").strip()
+    )
+    return {
+        "detail_id": detail.detail_id,
+        "title": title,
+        "render_kind": str(detail.render_kind or "list"),
+        "waiting_text": waiting_text,
+        "show_all_text": show_all_text,
+        "span_class": str(detail.span_class or "span6"),
+    }
+
+
+def monitor_detail_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    rows: list[Dict[str, Any]] = []
+    for integration in _REGISTERED_INTEGRATIONS:
+        for detail in integration.dashboard_details:
+            row = _dashboard_detail_snapshot(detail, homeassistant_mode=homeassistant_mode)
+            row["integration_id"] = integration.integration_id
+            rows.append(row)
     return rows
 
 

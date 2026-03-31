@@ -18,6 +18,7 @@ from esp_host_bridge.integrations import (
     integration_dashboard_snapshot,
     integration_health_snapshot,
     monitor_dashboard_snapshot,
+    monitor_detail_snapshot,
     redact_agent_command_args,
 )
 from esp_host_bridge.integrations import registry as registry_mod
@@ -150,6 +151,29 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(vms_group_ha["title"], "Integrations")
         self.assertEqual(vms_group_ha["cards"][0]["label"], "Integration Summary")
         self.assertEqual(vms_group_ha["cards"][0]["subtext"], "Loaded integrations")
+
+    def test_monitor_detail_snapshot_exposes_workload_sections(self) -> None:
+        default_rows = monitor_detail_snapshot(homeassistant_mode=False)
+        homeassistant_rows = monitor_detail_snapshot(homeassistant_mode=True)
+
+        self.assertEqual([row["detail_id"] for row in default_rows], ["docker_list", "vm_list"])
+
+        docker_default = default_rows[0]
+        docker_ha = homeassistant_rows[0]
+        vm_ha = homeassistant_rows[1]
+
+        self.assertEqual(docker_default["title"], "Containers")
+        self.assertEqual(docker_default["render_kind"], "docker_list")
+        self.assertEqual(docker_default["waiting_text"], "Waiting for Docker data...")
+        self.assertEqual(docker_default["show_all_text"], "Show all containers")
+
+        self.assertEqual(docker_ha["title"], "Add-ons")
+        self.assertEqual(docker_ha["waiting_text"], "Waiting for add-on data...")
+        self.assertEqual(docker_ha["show_all_text"], "Show all add-ons")
+
+        self.assertEqual(vm_ha["title"], "Integrations")
+        self.assertEqual(vm_ha["render_kind"], "vm_list")
+        self.assertEqual(vm_ha["show_all_text"], "Show all integrations")
 
     def test_cfg_to_agent_args_and_redaction_cover_registered_integrations(self) -> None:
         cfg = {

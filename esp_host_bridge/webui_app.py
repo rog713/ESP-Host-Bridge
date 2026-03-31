@@ -38,6 +38,7 @@ from .integrations import (
     get_integration_spec,
     integration_dashboard_snapshot,
     monitor_dashboard_snapshot,
+    monitor_detail_snapshot,
     redact_agent_command_args,
 )
 from .metrics import detect_hardware_choices
@@ -198,6 +199,31 @@ def _render_monitor_dashboard_sections(groups: list[dict[str, Any]]) -> str:
             f'<h3><span class="gicon" aria-hidden="true"><span class="mdi {icon_class}"></span></span>{title}</h3>'
             f'<div class="mgroup-grid">{"".join(cards_html)}</div>'
             "</section>"
+        )
+    return "".join(sections)
+
+
+def _render_monitor_detail_sections(details: list[dict[str, Any]]) -> str:
+    if not details:
+        return '<div class="monitor-note">Waiting for workload detail metadata...</div>'
+    sections: list[str] = []
+    for detail in details:
+        detail_id = str(detail.get("detail_id") or "").strip()
+        if not detail_id:
+            continue
+        title = html.escape(str(detail.get("title") or detail_id))
+        span_class = html.escape(str(detail.get("span_class") or "span6"))
+        waiting_text = html.escape(str(detail.get("waiting_text") or "Waiting for data..."))
+        show_all_text = html.escape(str(detail.get("show_all_text") or "Show all"))
+        sections.append(
+            f'<section class="mgroup {span_class}">'
+            f'<h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>{title}</h3>'
+            '<div class="mgroup-grid">'
+            f'<div class="mcard"><div class="metric-sub" id="{html.escape(detail_id)}MoreHint">{waiting_text}</div>'
+            f'<ul class="docker-list" id="{html.escape(detail_id)}PreviewList"></ul>'
+            f'<details><summary class="monitor-note">{show_all_text}</summary>'
+            f'<ul class="docker-list" id="{html.escape(detail_id)}AllList"></ul></details></div>'
+            '</div></section>'
         )
     return "".join(sections)
 
@@ -493,6 +519,7 @@ def create_app(
         logout_action = "/logout"
         homeassistant_mode = is_home_assistant_app_mode()
         monitor_dashboard = monitor_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
+        monitor_details = monitor_detail_snapshot(homeassistant_mode=homeassistant_mode)
         if homeassistant_mode:
             power_commands_body = """
       <div class=\"row\"><label>Power Control Path</label><div><input type=\"text\" value=\"Home Assistant Supervisor host API\" readonly><div class=\"hint\">Uses <code>POST /host/shutdown</code> for <code>CMD=shutdown</code> and <code>POST /host/reboot</code> for <code>CMD=restart</code> / <code>CMD=reboot</code>.</div></div></div>
@@ -513,12 +540,6 @@ def create_app(
       <div class=\"row\"><label>Allow Host Commands</label><div><input name=\"allow_host_cmds\" type=\"checkbox\" {'checked' if cfg.get('allow_host_cmds') else ''}><div class=\"hint\">Lets the ESP request host actions like shutdown/restart. Leave off unless you need it.</div></div></div>
       <div class=\"row\"><label>Use sudo for Host Commands</label><div><input name=\"host_cmd_use_sudo\" type=\"checkbox\" {'checked' if cfg.get('host_cmd_use_sudo') else ''}><div class=\"hint\">{host_cmd_use_sudo_hint}</div></div></div>
             """
-        workload_list_label = "Add-ons" if homeassistant_mode else "Containers"
-        workload_waiting_text = "Waiting for add-on data..." if homeassistant_mode else "Waiting for Docker data..."
-        workload_show_all = "Show all add-ons" if homeassistant_mode else "Show all containers"
-        vm_list_label = "Integrations" if homeassistant_mode else "Virtual Machines"
-        vm_waiting_text = "Waiting for integration data..." if homeassistant_mode else "Waiting for VM data..."
-        vm_show_all = "Show all integrations" if homeassistant_mode else "Show all virtual machines"
         saved_webui_password_placeholder = secret_placeholder_text(
             bool(_clean_str(cfg.get("webui_password_hash"), "")),
             REDACTED_SECRET_TEXT,
@@ -948,10 +969,7 @@ def create_app(
         </div>
       </section>
       <div id="monitorDashboardSections">{_render_monitor_dashboard_sections(monitor_dashboard)}</div>
-      <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>Workload Details</h3><div class="mgroup-grid">
-        <div class="mcard"><div class="metric-label">{workload_list_label}</div><div class="metric-sub" id="dockerMoreHint">{workload_waiting_text}</div><ul class="docker-list" id="dockerPreviewList"></ul><details><summary class="monitor-note">{workload_show_all}</summary><ul class="docker-list" id="dockerAllList"></ul></details></div>
-        <div class="mcard"><div class="metric-label">{vm_list_label}</div><div class="metric-sub" id="vmMoreHint">{vm_waiting_text}</div><ul class="docker-list" id="vmPreviewList"></ul><details><summary class="monitor-note">{vm_show_all}</summary><ul class="docker-list" id="vmAllList"></ul></details></div>
-      </div></section>
+      <div id="monitorDetailSections">{_render_monitor_detail_sections(monitor_details)}</div>
       <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-puzzle-outline"></span></span>Integration Health</h3><div class="mgroup-grid">
         <div class="mcard">
           <div class="metric-label">Integrations</div>
@@ -1040,6 +1058,9 @@ window.__HOST_METRICS_BOOT__ = {{
             homeassistant_mode=is_home_assistant_app_mode()
         )
         status["monitor_dashboard"] = monitor_dashboard_snapshot(
+            homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["monitor_details"] = monitor_detail_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()
         )
         return jsonify(status)

@@ -18,6 +18,7 @@ from .base import (
     CommandSpec,
     ConfigFieldSpec,
     DashboardCardSpec,
+    DashboardDetailSpec,
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
@@ -101,6 +102,19 @@ DOCKER_DASHBOARD_GROUPS = (
                 severity_kind="docker_counts",
             ),
         ),
+    ),
+)
+
+DOCKER_DASHBOARD_DETAILS = (
+    DashboardDetailSpec(
+        detail_id="docker_list",
+        title="Containers",
+        homeassistant_title="Add-ons",
+        render_kind="docker_list",
+        waiting_text="Waiting for Docker data...",
+        homeassistant_waiting_text="Waiting for add-on data...",
+        show_all_text="Show all containers",
+        homeassistant_show_all_text="Show all add-ons",
     ),
 )
 
@@ -371,6 +385,7 @@ DOCKER_INTEGRATION = IntegrationSpec(
     config_fields=DOCKER_CONFIG_FIELDS,
     commands=DOCKER_COMMANDS,
     dashboard_groups=DOCKER_DASHBOARD_GROUPS,
+    dashboard_details=DOCKER_DASHBOARD_DETAILS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

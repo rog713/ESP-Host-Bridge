@@ -16,6 +16,7 @@ from .base import (
     CommandSpec,
     ConfigFieldSpec,
     DashboardCardSpec,
+    DashboardDetailSpec,
     DashboardGroupSpec,
     IntegrationSpec,
     PollContext,
@@ -130,6 +131,19 @@ VMS_DASHBOARD_GROUPS = (
                 severity_kind="always_ok",
             ),
         ),
+    ),
+)
+
+VMS_DASHBOARD_DETAILS = (
+    DashboardDetailSpec(
+        detail_id="vm_list",
+        title="Virtual Machines",
+        homeassistant_title="Integrations",
+        render_kind="vm_list",
+        waiting_text="Waiting for VM data...",
+        homeassistant_waiting_text="Waiting for integration data...",
+        show_all_text="Show all virtual machines",
+        homeassistant_show_all_text="Show all integrations",
     ),
 )
 
@@ -366,6 +380,7 @@ VMS_INTEGRATION = IntegrationSpec(
     config_fields=VMS_CONFIG_FIELDS,
     commands=VMS_COMMANDS,
     dashboard_groups=VMS_DASHBOARD_GROUPS,
+    dashboard_details=VMS_DASHBOARD_DETAILS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

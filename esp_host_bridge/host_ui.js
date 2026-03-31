@@ -10,6 +10,7 @@ let currentViewMode = 'setup';
 let currentEspPreviewPage = 'home';
 let currentWorkloadMode = 'host';
 let lastMonitorDashboardSignature = '';
+let lastMonitorDetailSignature = '';
 let mainLogRows = [];
 let hideMetricLogs = false;
 const ESP_PREVIEW_PAGE_ORDER = ['home', 'docker', 'settings_1', 'settings_2', 'info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6', 'info_7', 'info_8', 'vms'];
@@ -976,8 +977,8 @@ function renderEspVmRows(items, stateMode) {
       <span class="esp-workload-row-name">${escapeHtml(item.name)}</span>
     </button>`).join('');
 }
-function renderDockerLists(items) {
-  const prev = document.getElementById('dockerPreviewList'); const all = document.getElementById('dockerAllList'); const hint = document.getElementById('dockerMoreHint');
+function renderDockerLists(items, detailId = 'docker_list') {
+  const prev = document.getElementById(`${detailId}PreviewList`); const all = document.getElementById(`${detailId}AllList`); const hint = document.getElementById(`${detailId}MoreHint`);
   if (!prev || !all || !hint) return;
   const labels = getWorkloadLabels(currentWorkloadMode);
   const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + (it.state === 'up' ? 'up' : 'down') + '">' + it.state + '</span></li>';
@@ -993,8 +994,8 @@ function renderDockerLists(items) {
   else if (items.length === 1) hint.textContent = labels.dockerListHintOne;
   else hint.textContent = labels.dockerListHintMany(items.length);
 }
-function renderVmLists(items) {
-  const prev = document.getElementById('vmPreviewList'); const all = document.getElementById('vmAllList'); const hint = document.getElementById('vmMoreHint');
+function renderVmLists(items, detailId = 'vm_list') {
+  const prev = document.getElementById(`${detailId}PreviewList`); const all = document.getElementById(`${detailId}AllList`); const hint = document.getElementById(`${detailId}MoreHint`);
   if (!prev || !all || !hint) return;
   const labels = getWorkloadLabels(currentWorkloadMode);
   const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + it.stateKey + '">' + it.stateLabel + '</span></li>';
@@ -1009,6 +1010,16 @@ function renderVmLists(items) {
   else if (extra) hint.textContent = labels.vmListHintMore(items.length, extra);
   else if (items.length === 1) hint.textContent = labels.vmListHintOne;
   else hint.textContent = labels.vmListHintMany(items.length);
+}
+function updateMonitorDetailsFromMetadata(s) {
+  const m = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  monitorDetailSections(s).forEach((detail) => {
+    const detailId = String(detail && detail.detail_id || '').trim();
+    const kind = String(detail && detail.render_kind || '').trim();
+    if (!detailId) return;
+    if (kind === 'docker_list') renderDockerLists(parseDockerCompact(m.DOCKER), detailId);
+    else if (kind === 'vm_list') renderVmLists(parseVmCompact(m.VMS), detailId);
+  });
 }
 function setMonitorMode(mode) {
   currentViewMode = (mode === 'monitor') ? 'monitor' : 'setup';
@@ -1038,6 +1049,9 @@ function integrationDashboardRows(s) {
 }
 function monitorDashboardGroups(s) {
   return Array.isArray(s && s.monitor_dashboard) ? s.monitor_dashboard : [];
+}
+function monitorDetailSections(s) {
+  return Array.isArray(s && s.monitor_details) ? s.monitor_details : [];
 }
 function integrationDashboardMeta(s, id) {
   const target = String(id || '').trim().toLowerCase();
@@ -1077,6 +1091,35 @@ function renderMonitorDashboardSections(s) {
     return `<section class="mgroup ${spanClass}">
       <h3><span class="gicon" aria-hidden="true"><span class="mdi ${iconClass}"></span></span>${title}</h3>
       <div class="mgroup-grid">${cards.map(monitorDashboardCardHtml).join('')}</div>
+    </section>`;
+  }).join('');
+}
+function renderMonitorDetailSections(s) {
+  const box = document.getElementById('monitorDetailSections');
+  if (!box) return;
+  const details = monitorDetailSections(s);
+  const signature = JSON.stringify(details);
+  if (signature === lastMonitorDetailSignature) return;
+  lastMonitorDetailSignature = signature;
+  if (!details.length) {
+    box.innerHTML = '<div class="monitor-note">Waiting for workload detail metadata...</div>';
+    return;
+  }
+  box.innerHTML = details.map((detail) => {
+    const detailId = escapeHtml(String(detail && detail.detail_id || 'detail'));
+    const title = escapeHtml(String(detail && detail.title || 'Details'));
+    const spanClass = escapeHtml(String(detail && detail.span_class || 'span6'));
+    const waitingText = escapeHtml(String(detail && detail.waiting_text || 'Waiting for data...'));
+    const showAllText = escapeHtml(String(detail && detail.show_all_text || 'Show all'));
+    return `<section class="mgroup ${spanClass}">
+      <h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>${title}</h3>
+      <div class="mgroup-grid">
+        <div class="mcard">
+          <div class="metric-sub" id="${detailId}MoreHint">${waitingText}</div>
+          <ul class="docker-list" id="${detailId}PreviewList"></ul>
+          <details><summary class="monitor-note">${showAllText}</summary><ul class="docker-list" id="${detailId}AllList"></ul></details>
+        </div>
+      </div>
     </section>`;
   }).join('');
 }
@@ -1362,6 +1405,7 @@ function updateMonitorDashboard(s) {
   const workloadMode = getWorkloadMode(s);
   currentWorkloadMode = workloadMode;
   renderMonitorDashboardSections(s);
+  renderMonitorDetailSections(s);
   const labels = getWorkloadLabels(workloadMode);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
   metricText('sumAgent', s.running ? 'Running' : 'Stopped');
@@ -1370,8 +1414,7 @@ function updateMonitorDashboard(s) {
   metricText('sumAge', fmtAgeSec(s.last_metrics_age_s));
   metricText('sumPower', String(m.POWER || 'RUNNING'));
   updateMonitorCardsFromMetadata(s, workloadMode);
-  renderDockerLists(parseDockerCompact(m.DOCKER));
-  renderVmLists(parseVmCompact(m.VMS));
+  updateMonitorDetailsFromMetadata(s);
   renderIntegrationOverview(s);
   updateEspPreview(s);
 }

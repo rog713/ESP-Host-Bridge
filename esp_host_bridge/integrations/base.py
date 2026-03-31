@@ -106,6 +106,19 @@ class DashboardGroupSpec:
 
 
 @dataclass(frozen=True)
+class DashboardDetailSpec:
+    detail_id: str
+    title: str
+    render_kind: str
+    waiting_text: str
+    show_all_text: str
+    homeassistant_title: Optional[str] = None
+    homeassistant_waiting_text: Optional[str] = None
+    homeassistant_show_all_text: Optional[str] = None
+    span_class: str = "span6"
+
+
+@dataclass(frozen=True)
 class IntegrationSpec:
     integration_id: str
     title: str = ""
@@ -119,6 +132,7 @@ class IntegrationSpec:
     setup_choices: tuple[SetupChoiceSpec, ...] = ()
     commands: tuple[CommandSpec, ...] = ()
     dashboard_groups: tuple[DashboardGroupSpec, ...] = ()
+    dashboard_details: tuple[DashboardDetailSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     poll: Optional[Callable[[PollContext], Dict[str, Any]]] = None
