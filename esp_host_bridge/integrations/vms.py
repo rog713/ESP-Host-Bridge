@@ -140,7 +140,7 @@ VMS_DASHBOARD_DETAILS = (
         detail_id="vm_list",
         title="Virtual Machines",
         homeassistant_title="Integrations",
-        render_kind="vm_list",
+        render_kind="status_list",
         waiting_text="Waiting for VM data...",
         homeassistant_waiting_text="Waiting for integration data...",
         show_all_text="Show all virtual machines",
@@ -205,6 +205,64 @@ def compact_virtual_machines(vm_data: list[dict[str, Any]], max_items: int = 10)
             f"{vcpus}|{mem_mib}|{_clean_token(state_label, 'Stopped')}"
         )
     return ";".join(out) if out else "-"
+
+
+def parse_compact_virtual_machines(value: Any) -> list[dict[str, str]]:
+    raw = str(value or "").strip()
+    if not raw or raw == "-":
+        return []
+    rows: list[dict[str, str]] = []
+    rank = {"running": 0, "paused": 1, "stopped": 2, "other": 3}
+    for item in raw.split(";"):
+        token = str(item or "").strip()
+        if not token:
+            continue
+        parts = token.split("|")
+        name = str(parts[0] or "").strip()
+        state_key = str(parts[1] if len(parts) > 1 else "other").strip().lower() or "other"
+        state_label = str(parts[4] if len(parts) > 4 else parts[1] if len(parts) > 1 else "Unknown").strip() or "Unknown"
+        if not name:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "state_text": state_label,
+                "state_class": state_key,
+            }
+        )
+    rows.sort(key=lambda row: (rank.get(row["state_class"], 4), row["name"].lower()))
+    return rows
+
+
+def detail_payloads(last_metrics: Dict[str, Any], homeassistant_mode: bool) -> Dict[str, Dict[str, Any]]:
+    items = parse_compact_virtual_machines(last_metrics.get("VMS"))
+    token = int(float(last_metrics.get("HATOKEN") or 0)) if homeassistant_mode else 1
+    api = int(float(last_metrics.get("HAVMSAPI") or -1)) if homeassistant_mode else 1
+    if not items and homeassistant_mode and token == 0:
+        hint = "Supervisor token missing in app container"
+    elif not items and homeassistant_mode and api == 0:
+        hint = "Integration registry unavailable; check logs"
+    elif not items:
+        hint = "No integrations in the latest payload" if homeassistant_mode else "No virtual machines in the latest payload"
+    else:
+        extra = max(0, len(items) - 5)
+        if extra:
+            hint = (
+                f"{len(items)} integrations detected, showing 5"
+                if homeassistant_mode
+                else f"{len(items)} virtual machines detected, showing 5"
+            )
+        elif len(items) == 1:
+            hint = "1 integration detected" if homeassistant_mode else "1 virtual machine detected"
+        else:
+            hint = f"{len(items)} integrations detected" if homeassistant_mode else f"{len(items)} virtual machines detected"
+    return {
+        "vm_list": {
+            "kind": "status_list",
+            "items": items,
+            "hint": hint,
+        }
+    }
 
 
 def _cache(state: Any) -> Dict[str, Any]:
@@ -400,4 +458,5 @@ VMS_INTEGRATION = IntegrationSpec(
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,
     handle_command=handle_command,
+    detail_payloads=detail_payloads,
 )

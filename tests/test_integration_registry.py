@@ -18,6 +18,7 @@ from esp_host_bridge.integrations import (
     integration_dashboard_snapshot,
     integration_health_snapshot,
     monitor_dashboard_snapshot,
+    monitor_detail_payload_snapshot,
     monitor_detail_snapshot,
     preview_cards_snapshot,
     redact_agent_command_args,
@@ -165,7 +166,7 @@ class IntegrationRegistryTests(unittest.TestCase):
         vm_ha = homeassistant_rows[1]
 
         self.assertEqual(docker_default["title"], "Containers")
-        self.assertEqual(docker_default["render_kind"], "docker_list")
+        self.assertEqual(docker_default["render_kind"], "status_list")
         self.assertEqual(docker_default["waiting_text"], "Waiting for Docker data...")
         self.assertEqual(docker_default["show_all_text"], "Show all containers")
 
@@ -174,8 +175,23 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(docker_ha["show_all_text"], "Show all add-ons")
 
         self.assertEqual(vm_ha["title"], "Integrations")
-        self.assertEqual(vm_ha["render_kind"], "vm_list")
+        self.assertEqual(vm_ha["render_kind"], "status_list")
         self.assertEqual(vm_ha["show_all_text"], "Show all integrations")
+
+    def test_monitor_detail_payload_snapshot_normalizes_workload_rows(self) -> None:
+        payloads = monitor_detail_payload_snapshot(
+            {
+                "DOCKER": "plex|up;db|down",
+                "VMS": "ubuntu|running|2|4096|Running;test|paused|2|2048|Paused",
+            },
+            homeassistant_mode=False,
+        )
+        self.assertEqual([row["name"] for row in payloads["docker_list"]["items"]], ["plex", "db"])
+        self.assertEqual(payloads["docker_list"]["items"][0]["state_class"], "up")
+        self.assertEqual(payloads["docker_list"]["hint"], "2 containers detected")
+        self.assertEqual([row["name"] for row in payloads["vm_list"]["items"]], ["ubuntu", "test"])
+        self.assertEqual(payloads["vm_list"]["items"][0]["state_class"], "running")
+        self.assertEqual(payloads["vm_list"]["hint"], "2 virtual machines detected")
 
     def test_preview_cards_snapshot_exposes_host_and_workload_preview_cards(self) -> None:
         default_rows = preview_cards_snapshot(homeassistant_mode=False)

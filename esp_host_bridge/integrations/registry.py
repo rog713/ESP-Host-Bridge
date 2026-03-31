@@ -265,6 +265,18 @@ def monitor_detail_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[st
     return rows
 
 
+def monitor_detail_payload_snapshot(
+    last_metrics: Dict[str, Any], *, homeassistant_mode: bool = False
+) -> Dict[str, Dict[str, Any]]:
+    payloads: Dict[str, Dict[str, Any]] = {}
+    metrics = last_metrics if isinstance(last_metrics, dict) else {}
+    for integration in _REGISTERED_INTEGRATIONS:
+        if integration.detail_payloads is None:
+            continue
+        payloads.update(integration.detail_payloads(metrics, homeassistant_mode))
+    return payloads
+
+
 def get_registered_commands() -> tuple[CommandSpec, ...]:
     out: list[CommandSpec] = list(_BUILTIN_COMMANDS)
     for integration in _REGISTERED_INTEGRATIONS:

@@ -111,7 +111,7 @@ DOCKER_DASHBOARD_DETAILS = (
         detail_id="docker_list",
         title="Containers",
         homeassistant_title="Add-ons",
-        render_kind="docker_list",
+        render_kind="status_list",
         waiting_text="Waiting for Docker data...",
         homeassistant_waiting_text="Waiting for add-on data...",
         show_all_text="Show all containers",
@@ -157,6 +157,65 @@ def compact_containers(docker_data: list[dict[str, Any]], max_items: int = 10) -
         state = "up" if any(token in status_raw for token in ["running", "up", "healthy"]) else "down"
         out.append(f"{name}|{state}")
     return ";".join(out)
+
+
+def parse_compact_containers(value: Any) -> list[dict[str, str]]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    items = (
+        raw.split(";")
+    )
+    rows: list[dict[str, str]] = []
+    for item in items:
+        token = str(item or "").strip()
+        if not token:
+            continue
+        parts = token.split("|")
+        name = str(parts[0] or "").strip()
+        state = str(parts[1] if len(parts) > 1 else "--").strip().lower() or "--"
+        if not name:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "state_text": state,
+                "state_class": "up" if state == "up" else "down",
+            }
+        )
+    rows.sort(key=lambda row: (0 if row["state_class"] == "up" else 1, row["name"].lower()))
+    return rows
+
+
+def detail_payloads(last_metrics: Dict[str, Any], homeassistant_mode: bool) -> Dict[str, Dict[str, Any]]:
+    items = parse_compact_containers(last_metrics.get("DOCKER"))
+    token = int(float(last_metrics.get("HATOKEN") or 0)) if homeassistant_mode else 1
+    api = int(float(last_metrics.get("HADOCKAPI") or -1)) if homeassistant_mode else 1
+    if not items and homeassistant_mode and token == 0:
+        hint = "Supervisor token missing in app container"
+    elif not items and homeassistant_mode and api == 0:
+        hint = "Add-on API unavailable; check logs"
+    elif not items:
+        hint = "No add-ons in the latest payload" if homeassistant_mode else "No containers in the latest payload"
+    else:
+        extra = max(0, len(items) - 5)
+        if extra:
+            hint = (
+                f"{len(items)} add-ons detected, showing 5"
+                if homeassistant_mode
+                else f"{len(items)} containers detected, showing 5"
+            )
+        elif len(items) == 1:
+            hint = "1 add-on detected" if homeassistant_mode else "1 container detected"
+        else:
+            hint = f"{len(items)} add-ons detected" if homeassistant_mode else f"{len(items)} containers detected"
+    return {
+        "docker_list": {
+            "kind": "status_list",
+            "items": items,
+            "hint": hint,
+        }
+    }
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -405,4 +464,5 @@ DOCKER_INTEGRATION = IntegrationSpec(
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,
     handle_command=handle_command,
+    detail_payloads=detail_payloads,
 )

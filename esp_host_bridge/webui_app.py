@@ -39,6 +39,7 @@ from .integrations import (
     integration_dashboard_snapshot,
     monitor_dashboard_snapshot,
     monitor_detail_snapshot,
+    monitor_detail_payload_snapshot,
     preview_cards_snapshot,
     redact_agent_command_args,
     summary_bar_snapshot,
@@ -1075,6 +1076,9 @@ window.__HOST_METRICS_BOOT__ = {{
         )
         status["monitor_details"] = monitor_detail_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()
+        )
+        status["monitor_detail_payloads"] = monitor_detail_payload_snapshot(
+            status.get("last_metrics", {}), homeassistant_mode=is_home_assistant_app_mode()
         )
         status["preview_cards"] = preview_cards_snapshot(
             homeassistant_mode=is_home_assistant_app_mode()

@@ -1080,14 +1080,31 @@ function renderVmLists(items, detailId = 'vm_list') {
   else if (items.length === 1) hint.textContent = labels.vmListHintOne;
   else hint.textContent = labels.vmListHintMany(items.length);
 }
+function monitorDetailPayloads(s) {
+  return (s && s.monitor_detail_payloads && typeof s.monitor_detail_payloads === 'object') ? s.monitor_detail_payloads : {};
+}
+function renderStatusListDetail(payload, detailId) {
+  const prev = document.getElementById(`${detailId}PreviewList`);
+  const all = document.getElementById(`${detailId}AllList`);
+  const hint = document.getElementById(`${detailId}MoreHint`);
+  if (!prev || !all || !hint) return;
+  const items = Array.isArray(payload && payload.items) ? payload.items : [];
+  const rowHtml = (it) => {
+    const name = escapeHtml(String(it && it.name || '--'));
+    const stateText = escapeHtml(String(it && it.state_text || '--'));
+    const stateClass = escapeHtml(String(it && it.state_class || 'other'));
+    return `<li><span>${name}</span><span class="docker-pill ${stateClass}">${stateText}</span></li>`;
+  };
+  prev.innerHTML = items.slice(0, 5).map(rowHtml).join('');
+  all.innerHTML = items.map(rowHtml).join('');
+  hint.textContent = String(payload && payload.hint || 'Waiting for data...');
+}
 function updateMonitorDetailsFromMetadata(s) {
-  const m = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  const payloads = monitorDetailPayloads(s);
   monitorDetailSections(s).forEach((detail) => {
     const detailId = String(detail && detail.detail_id || '').trim();
-    const kind = String(detail && detail.render_kind || '').trim();
     if (!detailId) return;
-    if (kind === 'docker_list') renderDockerLists(parseDockerCompact(m.DOCKER), detailId);
-    else if (kind === 'vm_list') renderVmLists(parseVmCompact(m.VMS), detailId);
+    renderStatusListDetail(payloads[detailId] || null, detailId);
   });
 }
 function setMonitorMode(mode) {

@@ -163,3 +163,4 @@ class IntegrationSpec:
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     poll: Optional[Callable[[PollContext], Dict[str, Any]]] = None
     handle_command: Optional[Callable[[str, CommandContext], bool]] = None
+    detail_payloads: Optional[Callable[[Dict[str, Any], bool], Dict[str, Dict[str, Any]]]] = None
