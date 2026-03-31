@@ -15,7 +15,7 @@ from ..metrics import (
     get_net_bytes_local,
     get_uptime_seconds,
 )
-from .base import CleanerSet, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import CleanerSet, ConfigFieldSpec, IntegrationSpec, PollContext, SetupActionSpec, SetupChoiceSpec
 
 HOST_WARN_INTERVAL_SECONDS = 30.0
 DISK_TEMP_REFRESH_SECONDS = 15.0
@@ -24,12 +24,114 @@ SLOW_SENSOR_REFRESH_SECONDS = 5.0
 HOST_POWER_COMMAND_IDS = ["host_shutdown", "host_restart"]
 
 HOST_CONFIG_FIELDS = (
-    ConfigFieldSpec("iface", "str", "", cli_flag="--iface", label="Network Interface", section_key="telemetry_sources"),
-    ConfigFieldSpec("gpu_polling_enabled", "bool", True, checkbox=True, label="Enable GPU Metrics", section_key="telemetry_sources"),
-    ConfigFieldSpec("disk_device", "str", "", cli_flag="--disk-device", label="Disk Device", section_key="telemetry_sources"),
-    ConfigFieldSpec("disk_temp_device", "str", "", cli_flag="--disk-temp-device", label="Disk Temp Device", section_key="telemetry_sources"),
-    ConfigFieldSpec("cpu_temp_sensor", "str", "", cli_flag="--cpu-temp-sensor", label="CPU Temp Sensor", section_key="telemetry_sources"),
-    ConfigFieldSpec("fan_sensor", "str", "", cli_flag="--fan-sensor", label="Fan Sensor", section_key="telemetry_sources"),
+    ConfigFieldSpec(
+        "iface",
+        "str",
+        "",
+        cli_flag="--iface",
+        label="Network Interface",
+        hint="Optional. Leave blank to auto-detect, or set a name like <code>eth0</code>/<code>br0</code>.",
+        section_key="telemetry_sources",
+        input_id="ifaceInput",
+    ),
+    ConfigFieldSpec(
+        "disk_device",
+        "str",
+        "",
+        cli_flag="--disk-device",
+        label="Disk Device",
+        hint="Optional. Set a device path like <code>/dev/sda</code> if auto-detection is not correct.",
+        section_key="telemetry_sources",
+        input_id="diskDeviceInput",
+    ),
+    ConfigFieldSpec(
+        "disk_temp_device",
+        "str",
+        "",
+        cli_flag="--disk-temp-device",
+        label="Disk Temp Device",
+        hint="Optional override for temperature checks (for example <code>/dev/nvme0</code> or <code>/dev/sda</code>).",
+        section_key="telemetry_sources",
+        input_id="diskTempDeviceInput",
+    ),
+    ConfigFieldSpec(
+        "cpu_temp_sensor",
+        "str",
+        "",
+        cli_flag="--cpu-temp-sensor",
+        label="CPU Temp Sensor",
+        hint="Optional. Leave blank for auto CPU temp detection, or choose a detected sensor below.",
+        section_key="telemetry_sources",
+        input_id="cpuTempSensorInput",
+        chip_id="cpuTempSensorChip",
+    ),
+    ConfigFieldSpec(
+        "gpu_polling_enabled",
+        "bool",
+        True,
+        checkbox=True,
+        label="Enable GPU Metrics",
+        hint="Turn GPU temperature, utilization, and VRAM polling on or off without affecting other telemetry.",
+        section_key="telemetry_sources",
+    ),
+    ConfigFieldSpec(
+        "fan_sensor",
+        "str",
+        "",
+        cli_flag="--fan-sensor",
+        label="Fan Sensor",
+        hint="Optional. Leave blank for auto fan detection, or choose a detected sensor below.",
+        section_key="telemetry_sources",
+        input_id="fanSensorInput",
+        chip_id="fanSensorChip",
+    ),
+)
+
+HOST_SETUP_CHOICES = (
+    SetupChoiceSpec(
+        label="Detected Interfaces",
+        section_key="telemetry_sources",
+        select_id="ifaceSelect",
+        placeholder="(click Refresh Interfaces)",
+        refresh_button_id="refreshIfaceBtn",
+        refresh_button_label="Refresh Interfaces",
+        result_id="ifaceResult",
+        buttons=(SetupActionSpec("useIfaceBtn", "Use Interface"),),
+    ),
+    SetupChoiceSpec(
+        label="Detected Disk Devices",
+        section_key="telemetry_sources",
+        select_id="diskDeviceSelect",
+        placeholder="(click Refresh Disks)",
+        refresh_button_id="refreshDiskBtn",
+        refresh_button_label="Refresh Disks",
+        result_id="diskResult",
+        buttons=(
+            SetupActionSpec("useDiskBtn", "Use for Disk"),
+            SetupActionSpec("useDiskTempBtn", "Use for Temp"),
+            SetupActionSpec("useDiskBothBtn", "Use for Both"),
+        ),
+    ),
+    SetupChoiceSpec(
+        label="Detected CPU Temp Sensors",
+        section_key="telemetry_sources",
+        select_id="cpuTempSensorSelect",
+        placeholder="(click Refresh CPU Temp Sensors)",
+        refresh_button_id="refreshCpuTempSensorBtn",
+        refresh_button_label="Refresh CPU Temp Sensors",
+        result_id="cpuTempSensorResult",
+        buttons=(SetupActionSpec("useCpuTempSensorBtn", "Use Sensor"),),
+    ),
+    SetupChoiceSpec(
+        label="Detected Fan Sensors",
+        section_key="telemetry_sources",
+        select_id="fanSensorSelect",
+        placeholder="(click Refresh Fan Sensors)",
+        refresh_button_id="refreshFanSensorBtn",
+        refresh_button_label="Refresh Fan Sensors",
+        result_id="fanSensorResult",
+        buttons=(SetupActionSpec("useFanSensorBtn", "Use Sensor"),),
+    ),
 )
 
 
@@ -221,6 +323,7 @@ HOST_INTEGRATION = IntegrationSpec(
     section_key="telemetry_sources",
     icon_class="mdi-chip",
     config_fields=HOST_CONFIG_FIELDS,
+    setup_choices=HOST_SETUP_CHOICES,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,
 )

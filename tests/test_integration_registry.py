@@ -47,18 +47,38 @@ class IntegrationRegistryTests(unittest.TestCase):
             }.issubset(names)
         )
 
-    def test_docker_and_vm_specs_expose_setup_ui_metadata(self) -> None:
+    def test_host_docker_and_vm_specs_expose_setup_ui_metadata(self) -> None:
+        host = get_integration_spec("host")
         docker = get_integration_spec("docker")
         vms = get_integration_spec("vms")
+        self.assertIsNotNone(host)
         self.assertIsNotNone(docker)
         self.assertIsNotNone(vms)
+        assert host is not None
         assert docker is not None
         assert vms is not None
+        self.assertEqual(host.section_key, "telemetry_sources")
         self.assertEqual(docker.section_key, "docker")
         self.assertEqual(vms.section_key, "virtual_machines")
+        self.assertTrue(host.title)
         self.assertTrue(docker.title)
         self.assertTrue(vms.title)
-        for field in docker.config_fields + vms.config_fields:
+        field_map = {field.name: field for field in host.config_fields}
+        self.assertEqual(field_map["iface"].input_id, "ifaceInput")
+        self.assertEqual(field_map["disk_device"].input_id, "diskDeviceInput")
+        self.assertEqual(field_map["disk_temp_device"].input_id, "diskTempDeviceInput")
+        self.assertEqual(field_map["cpu_temp_sensor"].input_id, "cpuTempSensorInput")
+        self.assertEqual(field_map["cpu_temp_sensor"].chip_id, "cpuTempSensorChip")
+        self.assertEqual(field_map["fan_sensor"].input_id, "fanSensorInput")
+        self.assertEqual(field_map["fan_sensor"].chip_id, "fanSensorChip")
+
+        choice_map = {choice.label: choice for choice in host.setup_choices}
+        self.assertEqual(choice_map["Detected Interfaces"].select_id, "ifaceSelect")
+        self.assertEqual(choice_map["Detected Disk Devices"].refresh_button_id, "refreshDiskBtn")
+        self.assertEqual(choice_map["Detected CPU Temp Sensors"].result_id, "cpuTempSensorResult")
+        self.assertEqual(choice_map["Detected Fan Sensors"].buttons[0].button_id, "useFanSensorBtn")
+
+        for field in host.config_fields + docker.config_fields + vms.config_fields:
             self.assertTrue(field.label)
             self.assertTrue(field.section_key)
             if field.readonly_when_homeassistant:

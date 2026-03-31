@@ -28,6 +28,27 @@ class ConfigFieldSpec:
     homeassistant_hint: Optional[str] = None
     homeassistant_value: Optional[str] = None
     readonly_when_homeassistant: bool = False
+    input_id: Optional[str] = None
+    chip_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SetupActionSpec:
+    button_id: str
+    label: str
+
+
+@dataclass(frozen=True)
+class SetupChoiceSpec:
+    label: str
+    section_key: str
+    select_id: str
+    placeholder: str
+    refresh_button_id: str
+    refresh_button_label: str
+    result_id: str
+    buttons: tuple[SetupActionSpec, ...] = ()
+    hint: str = ""
 
 
 @dataclass
@@ -66,6 +87,7 @@ class IntegrationSpec:
     section_key: str = ""
     icon_class: str = ""
     config_fields: tuple[ConfigFieldSpec, ...] = ()
+    setup_choices: tuple[SetupChoiceSpec, ...] = ()
     commands: tuple[CommandSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None

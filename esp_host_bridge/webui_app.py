@@ -97,10 +97,45 @@ def _render_config_field_input(field: Any, cfg: Dict[str, Any], homeassistant_mo
         number_value = html.escape(str(value))
         control = f'<input name="{html.escape(field_name)}" type="number" step="{html.escape(step)}" value="{number_value}">'
     else:
-        control = f'<input name="{html.escape(field_name)}" type="text" value="{html.escape(str(value or ""))}">'
+        input_attrs = [f'name="{html.escape(field_name)}"', 'type="text"', f'value="{html.escape(str(value or ""))}"']
+        input_id = str(getattr(field, "input_id", "") or "").strip()
+        if input_id:
+            input_attrs.append(f'id="{html.escape(input_id)}"')
+        input_html = f'<input {" ".join(input_attrs)}>'
+        chip_id = str(getattr(field, "chip_id", "") or "").strip()
+        if chip_id:
+            control = (
+                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+                f'{input_html}<span id="{html.escape(chip_id)}" class="sensor-chip auto">Auto</span>'
+                "</div>"
+            )
+        else:
+            control = input_html
 
     hint_html = f'<div class="hint">{hint}</div>' if hint else ""
     return f'<div class="row"><label>{html.escape(label)}</label><div>{control}{hint_html}</div></div>'
+
+
+def _render_setup_choice_row(choice: Any) -> str:
+    label = html.escape(str(choice.label or "Detected Choices"))
+    select_id = html.escape(str(choice.select_id or ""))
+    placeholder = html.escape(str(choice.placeholder or "(click Refresh)"))
+    refresh_button_id = html.escape(str(choice.refresh_button_id or ""))
+    refresh_button_label = html.escape(str(choice.refresh_button_label or "Refresh"))
+    result_id = html.escape(str(choice.result_id or ""))
+    buttons_html = "".join(
+        f'<button id="{html.escape(str(btn.button_id))}" class="secondary" type="button">{html.escape(str(btn.label))}</button>'
+        for btn in getattr(choice, "buttons", ()) or ()
+    )
+    hint = str(getattr(choice, "hint", "") or "")
+    hint_html = f'<div class="hint">{hint}</div>' if hint else ""
+    return (
+        f'<div class="row"><label>{label}</label><div>'
+        '<div class="actions" style="margin-top:0;">'
+        f'<select id="{select_id}" style="min-width:280px; flex:1;"><option value="">{placeholder}</option></select>'
+        f'<button id="{refresh_button_id}" class="secondary" type="button">{refresh_button_label}</button>'
+        f'{buttons_html}</div>{hint_html}<div id="{result_id}" class="hint" style="margin-top:6px;"></div></div></div>'
+    )
 
 
 def _render_integration_setup_section(cfg: Dict[str, Any], integration_id: str, homeassistant_mode: bool) -> str:
@@ -115,6 +150,11 @@ def _render_integration_setup_section(cfg: Dict[str, Any], integration_id: str, 
         for field in spec.config_fields
         if str(getattr(field, "section_key", "") or "") == section_key
     ]
+    rows.extend(
+        _render_setup_choice_row(choice)
+        for choice in getattr(spec, "setup_choices", ()) or ()
+        if str(getattr(choice, "section_key", "") or "") == section_key
+    )
     rows_html = "\n      ".join(rows)
     return (
         f'<details class="section" data-section-key="{html.escape(section_key)}">'
@@ -474,19 +514,10 @@ def create_app(
       <div class=\"row\"><label>Port Test</label><div><button id=\"testSerialBtn\" class=\"secondary\" type=\"button\">Test Port</button><div class=\"hint\">Checks whether the selected Serial Port opens cleanly. For <code>NONE</code>/<code>DEBUG</code>, it confirms serial bypass mode instead.</div><div id=\"testSerialResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       </div></details>
       <details class=\"section\" data-section-key=\"telemetry\" open><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-chart-line\"></span></span>Telemetry</summary><div class=\"section-body\">
-      <div class=\"row\"><label>Network Interface</label><div><input id=\"ifaceInput\" name=\"iface\" type=\"text\" value=\"{html.escape(str(cfg.get('iface', '')))}\"><div class=\"hint\">Optional. Leave blank to auto-detect, or set a name like <code>eth0</code>/<code>br0</code>.</div></div></div>
-      <div class=\"row\"><label>Detected Interfaces</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"ifaceSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Interfaces)</option></select><button id=\"refreshIfaceBtn\" class=\"secondary\" type=\"button\">Refresh Interfaces</button><button id=\"useIfaceBtn\" class=\"secondary\" type=\"button\">Use Interface</button></div><div id=\"ifaceResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       <div class=\"row\"><label>Update Interval (s)</label><div><input name=\"interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('interval', 1.0)))}\"><div class=\"hint\">How often metrics are sent to the ESP device.</div></div></div>
       <div class=\"row\"><label>Connection Timeout (s)</label><div><input name=\"timeout\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('timeout', 2.0)))}\"><div class=\"hint\">Timeout used for serial reads and host metric checks.</div></div></div>
-      <div class=\"row\"><label>Disk Device</label><div><input id=\"diskDeviceInput\" name=\"disk_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_device', '')))}\"><div class=\"hint\">Optional. Set a device path like <code>/dev/sda</code> if auto-detection is not correct.</div></div></div>
-      <div class=\"row\"><label>Disk Temp Device</label><div><input id=\"diskTempDeviceInput\" name=\"disk_temp_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_temp_device', '')))}\"><div class=\"hint\">Optional override for temperature checks (for example <code>/dev/nvme0</code> or <code>/dev/sda</code>).</div></div></div>
-      <div class=\"row\"><label>Detected Disk Devices</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"diskDeviceSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Disks)</option></select><button id=\"refreshDiskBtn\" class=\"secondary\" type=\"button\">Refresh Disks</button><button id=\"useDiskBtn\" class=\"secondary\" type=\"button\">Use for Disk</button><button id=\"useDiskTempBtn\" class=\"secondary\" type=\"button\">Use for Temp</button><button id=\"useDiskBothBtn\" class=\"secondary\" type=\"button\">Use for Both</button></div><div id=\"diskResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
-      <div class=\"row\"><label>CPU Temp Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"cpuTempSensorInput\" name=\"cpu_temp_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('cpu_temp_sensor', '')))}\"><span id=\"cpuTempSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto CPU temp detection, or choose a detected sensor below.</div></div></div>
-      <div class=\"row\"><label>Detected CPU Temp Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"cpuTempSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh CPU Temp Sensors)</option></select><button id=\"refreshCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Refresh CPU Temp Sensors</button><button id=\"useCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"cpuTempSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
-      <div class=\"row\"><label>Enable GPU Metrics</label><div><input name=\"gpu_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('gpu_polling_enabled', True) else ''}><div class=\"hint\">Turn GPU temperature, utilization, and VRAM polling on or off without affecting other telemetry.</div></div></div>
-      <div class=\"row\"><label>Fan Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"fanSensorInput\" name=\"fan_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('fan_sensor', '')))}\"><span id=\"fanSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto fan detection, or choose a detected sensor below.</div></div></div>
-      <div class=\"row\"><label>Detected Fan Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"fanSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Fan Sensors)</option></select><button id=\"refreshFanSensorBtn\" class=\"secondary\" type=\"button\">Refresh Fan Sensors</button><button id=\"useFanSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"fanSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       </div></details>
+      {_render_integration_setup_section(cfg, "host", homeassistant_mode)}
       {_render_integration_setup_section(cfg, "docker", homeassistant_mode)}
       {_render_integration_setup_section(cfg, "vms", homeassistant_mode)}
       <details class=\"section\" data-section-key=\"power_commands\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-power\"></span></span>Power Commands</summary><div class=\"section-body\">
