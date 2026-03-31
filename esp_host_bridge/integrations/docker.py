@@ -12,7 +12,7 @@ from ..metrics import (
     get_home_assistant_addons,
     normalize_docker_data,
 )
-from .base import CleanerSet, CommandContext, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
 
 DOCKER_WARN_INTERVAL_SECONDS = 30.0
 DOCKER_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "unhealthy": 0}
@@ -21,6 +21,25 @@ DOCKER_CONFIG_FIELDS = (
     ConfigFieldSpec("docker_socket", "str", "/var/run/docker.sock", cli_flag="--docker-socket"),
     ConfigFieldSpec("docker_polling_enabled", "bool", True, checkbox=True),
     ConfigFieldSpec("docker_interval", "float", 2.0, cli_flag="--docker-interval"),
+)
+
+DOCKER_COMMANDS = (
+    CommandSpec(
+        command_id="docker_start",
+        owner_id="docker",
+        patterns=("docker_start:",),
+        match_kind="prefix",
+        label="Start Docker Container",
+    ),
+    CommandSpec(
+        command_id="docker_stop",
+        owner_id="docker",
+        patterns=("docker_stop:",),
+        match_kind="prefix",
+        label="Stop Docker Container",
+        destructive=True,
+        confirmation_text="Stop the selected Docker container",
+    ),
 )
 
 
@@ -72,8 +91,12 @@ def _cache(state: Any) -> Dict[str, Any]:
             "items": [],
             "counts": dict(DOCKER_DEFAULT_COUNTS),
             "last_refresh_ts": 0.0,
+            "last_success_ts": 0.0,
             "last_warn_ts": 0.0,
+            "last_error": "",
+            "last_error_ts": 0.0,
             "api_ok": None,
+            "available": None,
         }
         integration_cache["docker"] = cached
     return cached
@@ -116,9 +139,16 @@ def poll(ctx: PollContext) -> Dict[str, Any]:
             else:
                 items = get_docker_containers_from_engine(ctx.args.docker_socket, timeout=ctx.args.timeout)
             cache["api_ok"] = True if ctx.homeassistant_mode else None
+            cache["available"] = True
+            cache["last_success_ts"] = ctx.now
+            cache["last_error"] = ""
+            cache["last_error_ts"] = 0.0
         except Exception as exc:
             items = []
             cache["api_ok"] = False if ctx.homeassistant_mode else None
+            cache["available"] = False
+            cache["last_error"] = str(exc).strip()[:200]
+            cache["last_error_ts"] = ctx.now
             last_warn_ts = float(cache.get("last_warn_ts") or 0.0)
             if (ctx.now - last_warn_ts) >= DOCKER_WARN_INTERVAL_SECONDS:
                 if ctx.homeassistant_mode:
@@ -143,13 +173,33 @@ def poll(ctx: PollContext) -> Dict[str, Any]:
         counts = dict(DOCKER_DEFAULT_COUNTS)
         if ctx.homeassistant_mode:
             cache["api_ok"] = None
+        cache["available"] = None
 
+    last_refresh_ts = float(cache.get("last_refresh_ts") or 0.0)
+    last_success_ts = float(cache.get("last_success_ts") or 0.0)
+    last_error_ts = float(cache.get("last_error_ts") or 0.0)
+    last_error = str(cache.get("last_error") or "").strip()
     return {
         "enabled": enabled,
         "items": items,
         "counts": counts,
         "compact": compact_containers(items),
         "api_ok": cache.get("api_ok"),
+        "health": {
+            "integration_id": "docker",
+            "enabled": enabled,
+            "available": cache.get("available"),
+            "source": "home_assistant_supervisor" if ctx.homeassistant_mode else "docker_socket",
+            "last_refresh_ts": last_refresh_ts or None,
+            "last_refresh_age_s": (ctx.now - last_refresh_ts) if last_refresh_ts else None,
+            "last_success_ts": last_success_ts or None,
+            "last_success_age_s": (ctx.now - last_success_ts) if last_success_ts else None,
+            "last_error": last_error or None,
+            "last_error_ts": last_error_ts or None,
+            "last_error_age_s": (ctx.now - last_error_ts) if last_error_ts else None,
+            "commands": [spec.command_id for spec in DOCKER_COMMANDS],
+            "api_ok": cache.get("api_ok"),
+        },
     }
 
 
@@ -253,6 +303,7 @@ def handle_command(cmd: str, ctx: CommandContext) -> bool:
 DOCKER_INTEGRATION = IntegrationSpec(
     integration_id="docker",
     config_fields=DOCKER_CONFIG_FIELDS,
+    commands=DOCKER_COMMANDS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

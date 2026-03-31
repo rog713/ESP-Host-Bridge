@@ -54,6 +54,7 @@ RX_BUFFER_KEEP_BYTES = 1024
 DISK_TEMP_REFRESH_SECONDS = 15.0
 DISK_USAGE_REFRESH_SECONDS = 10.0
 SLOW_SENSOR_REFRESH_SECONDS = 5.0
+INTEGRATION_HEALTH_LOG_MIN_INTERVAL_SECONDS = 30.0
 MAX_LOG_LINES = 800
 METRIC_HISTORY_POINTS = 90
 WEBUI_DEFAULT_PORT = 8654
@@ -153,6 +154,9 @@ class RuntimeState:
     display_sleeping: bool = False
     display_refresh_pending: bool = False
     integration_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    integration_health: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    last_integration_health_payload: str = ""
+    last_integration_health_emit_ts: float = 0.0
 
 
 def safe_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -262,7 +266,15 @@ def _supervisor_request_json(path: str, timeout: float, method: str = "GET", pay
 
 
 from .config import cfg_to_agent_args, load_cfg, validate_cfg
-from .integrations import CommandContext, PollContext, dispatch_integration_command, poll_integrations
+from .integrations import (
+    CommandContext,
+    PollContext,
+    command_registry_snapshot,
+    dispatch_integration_command,
+    integration_health_snapshot,
+    match_registered_command,
+    poll_integrations,
+)
 from .metrics import (
     detect_hardware_choices,
     get_cpu_percent,
@@ -463,6 +475,7 @@ def process_usb_commands(
         if not line.startswith("CMD="):
             continue
         cmd = line.split("=", 1)[1].strip()
+        command_spec = match_registered_command(cmd)
         if handle_display_state_command(cmd, state):
             continue
         if allow_host_cmds:
@@ -501,7 +514,10 @@ def process_usb_commands(
                 restart_cmd=restart_cmd,
             )
         else:
-            logging.info("host command received but disabled (CMD=%s)", cmd)
+            if command_spec is not None:
+                logging.info("registered host command received but disabled (CMD=%s, ID=%s)", cmd, command_spec.command_id)
+            else:
+                logging.info("host command received but disabled (CMD=%s)", cmd)
 
     if len(rx_buf) > RX_BUFFER_MAX_BYTES:
         rx_buf = rx_buf[-RX_BUFFER_KEEP_BYTES:]
@@ -554,6 +570,7 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
             homeassistant_mode=homeassistant_mode,
         )
     )
+    state.integration_health = integration_health_snapshot(integration_status)
 
     docker_status = integration_status.get("docker") or {}
     docker_enabled = bool(docker_status.get("enabled", not bool(getattr(args, "disable_docker_polling", False))))
@@ -653,6 +670,23 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
         f"POWER=RUNNING\n"
     )
 
+
+def maybe_build_integration_health_line(state: RuntimeState, now: float) -> Optional[str]:
+    if not state.integration_health:
+        return None
+    try:
+        payload = json.dumps(state.integration_health, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        return None
+    if (
+        payload == state.last_integration_health_payload
+        and (now - float(state.last_integration_health_emit_ts or 0.0)) < INTEGRATION_HEALTH_LOG_MIN_INTERVAL_SECONDS
+    ):
+        return None
+    state.last_integration_health_payload = payload
+    state.last_integration_health_emit_ts = now
+    return f"INTEGRATION_HEALTH={payload}"
+
 def agent_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="esp-host-bridge agent")
     ap.add_argument(
@@ -730,6 +764,9 @@ def run_agent(args: argparse.Namespace) -> int:
                     )
                 line = build_status_line(args, state)
                 logging.info("%s", line.strip())
+                health_line = maybe_build_integration_health_line(state, now)
+                if health_line:
+                    logging.info("%s", health_line)
                 if ser is not None:
                     if not state.display_sleeping:
                         next_sleep_probe_at = 0.0
@@ -759,6 +796,9 @@ def run_agent(args: argparse.Namespace) -> int:
                     if state.display_refresh_pending and not state.display_sleeping:
                         line = build_status_line(args, state)
                         logging.info("%s", line.strip())
+                        health_line = maybe_build_integration_health_line(state, now)
+                        if health_line:
+                            logging.info("%s", health_line)
                         if not state.host_name_sent and HOST_NAME_USB:
                             ser.write(f"HOSTNAME={HOST_NAME_USB}\n".encode("utf-8", errors="ignore"))
                             state.host_name_sent = True
@@ -823,6 +863,7 @@ class RunnerManager:
         self._esp_wifi_rssi_dbm: Optional[int] = None
         self._esp_wifi_ip: str = ""
         self._esp_wifi_ssid: str = ""
+        self._integration_health_cache: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _is_comm_event_line(line: str) -> bool:
@@ -889,6 +930,8 @@ class RunnerManager:
         if not m:
             return
         payload = raw[m.start():]
+        if payload.startswith("INTEGRATION_HEALTH="):
+            return
         if ',' not in payload and 'POWER=' not in payload:
             return
         metrics: Dict[str, str] = {}
@@ -984,6 +1027,28 @@ class RunnerManager:
                 self._esp_wifi_ip = ""
                 self._esp_wifi_ssid = ""
 
+    def _try_capture_integration_health(self, line: str) -> None:
+        raw = (line or "").strip()
+        marker = "INTEGRATION_HEALTH="
+        pos = raw.find(marker)
+        if pos < 0:
+            return
+        payload = raw[pos + len(marker):].strip()
+        if not payload:
+            return
+        try:
+            decoded = json.loads(payload)
+        except Exception:
+            return
+        if not isinstance(decoded, dict):
+            return
+        cleaned: Dict[str, Dict[str, Any]] = {}
+        for key, value in decoded.items():
+            if isinstance(value, dict):
+                cleaned[str(key)] = dict(value)
+        with self._lock:
+            self._integration_health_cache = cleaned
+
     def _append_log(self, line: str) -> None:
         raw = line.rstrip("\n")
         if not raw:
@@ -995,6 +1060,7 @@ class RunnerManager:
         self._try_capture_metrics(line)
         self._try_capture_esp_boot(line)
         self._try_capture_esp_wifi(line)
+        self._try_capture_integration_health(line)
         with self._lock:
             self._logs.append((self._next_log_id, line))
             self._next_log_id += 1
@@ -1090,8 +1156,16 @@ class RunnerManager:
                 "last_metrics": dict(self._last_metrics),
                 "last_metrics_line": self._last_metrics_line,
                 "active_iface": active_iface,
+                "integration_health": copy.deepcopy(self._integration_health_or_default()),
+                "command_registry": command_registry_snapshot(),
                 "metric_history": {k: [float(vv) for _, vv in rows] for k, rows in self._metric_history.items()},
             }
+
+    def _integration_health_or_default(self) -> Dict[str, Dict[str, Any]]:
+        data = getattr(self, "_integration_health_cache", None)
+        if isinstance(data, dict):
+            return data
+        return {}
 
     def _on_process_exit(self, proc: subprocess.Popen[str]) -> None:
         rc = proc.wait()

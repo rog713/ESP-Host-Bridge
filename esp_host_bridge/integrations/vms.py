@@ -10,7 +10,7 @@ from ..metrics import (
     get_virtual_machines_from_virsh,
     vm_summary_counts,
 )
-from .base import CleanerSet, CommandContext, ConfigFieldSpec, IntegrationSpec, PollContext
+from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
 
 VMS_WARN_INTERVAL_SECONDS = 30.0
 VMS_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
@@ -20,6 +20,43 @@ VMS_CONFIG_FIELDS = (
     ConfigFieldSpec("virsh_uri", "str", "", cli_flag="--virsh-uri"),
     ConfigFieldSpec("vm_polling_enabled", "bool", True, checkbox=True),
     ConfigFieldSpec("vm_interval", "float", 5.0, cli_flag="--vm-interval"),
+)
+
+VMS_COMMANDS = (
+    CommandSpec(
+        command_id="vm_start",
+        owner_id="vms",
+        patterns=("vm_start:",),
+        match_kind="prefix",
+        label="Start Virtual Machine",
+    ),
+    CommandSpec(
+        command_id="vm_stop",
+        owner_id="vms",
+        patterns=("vm_stop:",),
+        match_kind="prefix",
+        label="Stop Virtual Machine",
+        destructive=True,
+        confirmation_text="Shut down the selected virtual machine",
+    ),
+    CommandSpec(
+        command_id="vm_force_stop",
+        owner_id="vms",
+        patterns=("vm_force_stop:",),
+        match_kind="prefix",
+        label="Force Stop Virtual Machine",
+        destructive=True,
+        confirmation_text="Force stop the selected virtual machine",
+    ),
+    CommandSpec(
+        command_id="vm_restart",
+        owner_id="vms",
+        patterns=("vm_restart:",),
+        match_kind="prefix",
+        label="Restart Virtual Machine",
+        destructive=True,
+        confirmation_text="Restart the selected virtual machine",
+    ),
 )
 
 
@@ -79,8 +116,12 @@ def _cache(state: Any) -> Dict[str, Any]:
             "items": [],
             "counts": dict(VMS_DEFAULT_COUNTS),
             "last_refresh_ts": 0.0,
+            "last_success_ts": 0.0,
             "last_warn_ts": 0.0,
+            "last_error": "",
+            "last_error_ts": 0.0,
             "api_ok": None,
+            "available": None,
         }
         integration_cache["vms"] = cached
     return cached
@@ -122,9 +163,16 @@ def poll(ctx: PollContext) -> Dict[str, Any]:
             else:
                 items = get_virtual_machines_from_virsh(ctx.args.virsh_binary, ctx.args.virsh_uri, timeout=ctx.args.timeout)
             cache["api_ok"] = True if ctx.homeassistant_mode else None
+            cache["available"] = True
+            cache["last_success_ts"] = ctx.now
+            cache["last_error"] = ""
+            cache["last_error_ts"] = 0.0
         except Exception as exc:
             items = []
             cache["api_ok"] = False if ctx.homeassistant_mode else None
+            cache["available"] = False
+            cache["last_error"] = str(exc).strip()[:200]
+            cache["last_error_ts"] = ctx.now
             last_warn_ts = float(cache.get("last_warn_ts") or 0.0)
             if (ctx.now - last_warn_ts) >= VMS_WARN_INTERVAL_SECONDS:
                 if ctx.homeassistant_mode:
@@ -149,13 +197,33 @@ def poll(ctx: PollContext) -> Dict[str, Any]:
         counts = dict(VMS_DEFAULT_COUNTS)
         if ctx.homeassistant_mode:
             cache["api_ok"] = None
+        cache["available"] = None
 
+    last_refresh_ts = float(cache.get("last_refresh_ts") or 0.0)
+    last_success_ts = float(cache.get("last_success_ts") or 0.0)
+    last_error_ts = float(cache.get("last_error_ts") or 0.0)
+    last_error = str(cache.get("last_error") or "").strip()
     return {
         "enabled": enabled,
         "items": items,
         "counts": counts,
         "compact": compact_virtual_machines(items),
         "api_ok": cache.get("api_ok"),
+        "health": {
+            "integration_id": "vms",
+            "enabled": enabled,
+            "available": cache.get("available"),
+            "source": "home_assistant_core_websocket" if ctx.homeassistant_mode else "virsh",
+            "last_refresh_ts": last_refresh_ts or None,
+            "last_refresh_age_s": (ctx.now - last_refresh_ts) if last_refresh_ts else None,
+            "last_success_ts": last_success_ts or None,
+            "last_success_age_s": (ctx.now - last_success_ts) if last_success_ts else None,
+            "last_error": last_error or None,
+            "last_error_ts": last_error_ts or None,
+            "last_error_age_s": (ctx.now - last_error_ts) if last_error_ts else None,
+            "commands": [spec.command_id for spec in VMS_COMMANDS],
+            "api_ok": cache.get("api_ok"),
+        },
     }
 
 
@@ -218,6 +286,7 @@ def handle_command(cmd: str, ctx: CommandContext) -> bool:
 VMS_INTEGRATION = IntegrationSpec(
     integration_id="vms",
     config_fields=VMS_CONFIG_FIELDS,
+    commands=VMS_COMMANDS,
     validate_cfg=validate_cfg,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,
