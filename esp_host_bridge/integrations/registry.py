@@ -13,6 +13,7 @@ from .base import (
     IntegrationSpec,
     PollContext,
     PreviewCardSpec,
+    PreviewPageSpec,
     SummaryChipSpec,
 )
 from .docker import DOCKER_INTEGRATION
@@ -191,6 +192,166 @@ def preview_cards_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str
             )
     rows.sort(key=lambda row: (int(row.get("sort_order", 100)), int(row.get("preview_order", 0)), str(row.get("card_id", ""))))
     return rows
+
+
+def _preview_page_snapshot(page: PreviewPageSpec, *, homeassistant_mode: bool) -> Dict[str, Any]:
+    title = (
+        str(page.homeassistant_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_title or "").strip()
+        else str(page.title or page.page_id).strip()
+    )
+    footer = (
+        str(page.homeassistant_footer or "").strip()
+        if homeassistant_mode and str(page.homeassistant_footer or "").strip()
+        else str(page.footer or title).strip()
+    )
+    tab_label = (
+        str(page.homeassistant_tab_label or "").strip()
+        if homeassistant_mode and str(page.homeassistant_tab_label or "").strip()
+        else str(page.tab_label or "").strip()
+    )
+    tab_icon_class = (
+        str(page.homeassistant_tab_icon_class or "").strip()
+        if homeassistant_mode and str(page.homeassistant_tab_icon_class or "").strip()
+        else str(page.tab_icon_class or "").strip()
+    )
+    home_button_title = (
+        str(page.homeassistant_home_button_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_home_button_title or "").strip()
+        else str(page.home_button_title or "").strip()
+    )
+    home_button_icon_class = (
+        str(page.homeassistant_home_button_icon_class or "").strip()
+        if homeassistant_mode and str(page.homeassistant_home_button_icon_class or "").strip()
+        else str(page.home_button_icon_class or "").strip()
+    )
+    modal_title = (
+        str(page.homeassistant_modal_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_modal_title or "").strip()
+        else str(page.modal_title or "").strip()
+    )
+    modal_subtitle = (
+        str(page.homeassistant_modal_subtitle or "").strip()
+        if homeassistant_mode and str(page.homeassistant_modal_subtitle or "").strip()
+        else str(page.modal_subtitle or "").strip()
+    )
+    modal_icon_class = (
+        str(page.homeassistant_modal_icon_class or "").strip()
+        if homeassistant_mode and str(page.homeassistant_modal_icon_class or "").strip()
+        else str(page.modal_icon_class or "").strip()
+    )
+    empty_title = (
+        str(page.homeassistant_empty_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_empty_title or "").strip()
+        else str(page.empty_title or "").strip()
+    )
+    empty_subtitle = (
+        str(page.homeassistant_empty_subtitle or "").strip()
+        if homeassistant_mode and str(page.homeassistant_empty_subtitle or "").strip()
+        else str(page.empty_subtitle or "").strip()
+    )
+    token_missing_title = (
+        str(page.homeassistant_token_missing_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_token_missing_title or "").strip()
+        else str(page.token_missing_title or "").strip()
+    )
+    token_missing_subtitle = (
+        str(page.homeassistant_token_missing_subtitle or "").strip()
+        if homeassistant_mode and str(page.homeassistant_token_missing_subtitle or "").strip()
+        else str(page.token_missing_subtitle or "").strip()
+    )
+    api_error_title = (
+        str(page.homeassistant_api_error_title or "").strip()
+        if homeassistant_mode and str(page.homeassistant_api_error_title or "").strip()
+        else str(page.api_error_title or "").strip()
+    )
+    api_error_subtitle = (
+        str(page.homeassistant_api_error_subtitle or "").strip()
+        if homeassistant_mode and str(page.homeassistant_api_error_subtitle or "").strip()
+        else str(page.api_error_subtitle or "").strip()
+    )
+    return {
+        "page_id": page.page_id,
+        "dom_id": page.dom_id,
+        "preview_order": int(page.preview_order),
+        "title": title,
+        "footer": footer,
+        "tab_label": tab_label or None,
+        "tab_icon_class": tab_icon_class or None,
+        "indicator_count": int(page.indicator_count),
+        "indicator_index": int(page.indicator_index),
+        "top_pills": str(page.top_pills or "").strip() or None,
+        "nav": {
+            key: value
+            for key, value in {
+                "up": str(page.nav_up or "").strip() or None,
+                "down": str(page.nav_down or "").strip() or None,
+                "left": str(page.nav_left or "").strip() or None,
+                "right": str(page.nav_right or "").strip() or None,
+            }.items()
+            if value
+        },
+        "home_button_position": str(page.home_button_position or "").strip() or None,
+        "home_button_title": home_button_title or None,
+        "home_button_icon_class": home_button_icon_class or None,
+        "modal_target": str(page.modal_target or "").strip() or None,
+        "modal_title": modal_title or None,
+        "modal_subtitle": modal_subtitle or None,
+        "modal_icon_class": modal_icon_class or None,
+        "empty_title": empty_title or None,
+        "empty_subtitle": empty_subtitle or None,
+        "token_missing_title": token_missing_title or None,
+        "token_missing_subtitle": token_missing_subtitle or None,
+        "api_error_title": api_error_title or None,
+        "api_error_subtitle": api_error_subtitle or None,
+    }
+
+
+def preview_ui_snapshot(*, homeassistant_mode: bool = False) -> Dict[str, Any]:
+    pages: list[Dict[str, Any]] = []
+    for integration in _REGISTERED_INTEGRATIONS:
+        for page in integration.preview_pages:
+            pages.append(_preview_page_snapshot(page, homeassistant_mode=homeassistant_mode))
+    pages.sort(key=lambda row: (int(row.get("preview_order", 999)), str(row.get("page_id", ""))))
+    page_map = {str(row.get("page_id") or "").strip(): row for row in pages if str(row.get("page_id") or "").strip()}
+    tabs = [
+        {
+            "page_id": row["page_id"],
+            "label": str(row.get("tab_label") or row["page_id"]),
+            "icon_class": str(row.get("tab_icon_class") or "mdi-application-outline"),
+        }
+        for row in pages
+        if row.get("tab_label")
+    ]
+    home_buttons = [
+        {
+            "position": str(row.get("home_button_position") or ""),
+            "target_page": row["page_id"],
+            "title": str(row.get("home_button_title") or row["page_id"]),
+            "icon_class": str(row.get("home_button_icon_class") or "mdi-circle-outline"),
+        }
+        for row in pages
+        if row.get("home_button_position")
+    ]
+    home_buttons.sort(key=lambda row: row["position"])
+    modals = {
+        str(row["modal_target"]): {
+            "target": str(row["modal_target"]),
+            "title": str(row.get("modal_title") or row["page_id"]),
+            "subtitle": str(row.get("modal_subtitle") or ""),
+            "icon_class": str(row.get("modal_icon_class") or "mdi-puzzle-outline"),
+        }
+        for row in pages
+        if row.get("modal_target")
+    }
+    return {
+        "mode": "homeassistant" if homeassistant_mode else "host",
+        "page_order": [str(row["page_id"]) for row in pages],
+        "pages": page_map,
+        "tabs": tabs,
+        "home_buttons": home_buttons,
+        "modals": modals,
+    }
 
 
 def summary_bar_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:

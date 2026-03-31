@@ -43,6 +43,7 @@ from .integrations import (
     monitor_detail_payload_snapshot,
     preview_cards_snapshot,
     preview_action_groups_snapshot,
+    preview_ui_snapshot,
     redact_agent_command_args,
     summary_bar_snapshot,
 )
@@ -231,6 +232,54 @@ def _render_monitor_detail_sections(details: list[dict[str, Any]]) -> str:
             '</div></section>'
         )
     return "".join(sections)
+
+
+def _preview_page_map(preview_ui: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = preview_ui.get("pages") if isinstance(preview_ui, dict) else {}
+    return rows if isinstance(rows, dict) else {}
+
+
+def _render_preview_tabs(preview_ui: dict[str, Any]) -> str:
+    tabs = preview_ui.get("tabs") if isinstance(preview_ui, dict) else []
+    if not isinstance(tabs, list):
+        tabs = []
+    buttons: list[str] = []
+    for tab in tabs:
+        page_id = str(tab.get("page_id") or "").strip()
+        if not page_id:
+            continue
+        label = html.escape(str(tab.get("label") or page_id))
+        icon_class = html.escape(str(tab.get("icon_class") or "mdi-application-outline"))
+        buttons.append(
+            f'<button class="secondary" type="button" data-esp-page="{html.escape(page_id)}">'
+            f'<span class="mdi {icon_class}" aria-hidden="true"></span>{label}</button>'
+        )
+    return "".join(buttons)
+
+
+def _render_preview_home_buttons(preview_ui: dict[str, Any]) -> str:
+    buttons = preview_ui.get("home_buttons") if isinstance(preview_ui, dict) else []
+    if not isinstance(buttons, list):
+        buttons = []
+    rows: list[str] = []
+    for button in buttons:
+        target_page = str(button.get("target_page") or "").strip()
+        position = str(button.get("position") or "").strip()
+        if not target_page or not position:
+            continue
+        title = html.escape(str(button.get("title") or target_page))
+        icon_class = html.escape(str(button.get("icon_class") or "mdi-circle-outline"))
+        rows.append(
+            f'<div class="esp-home-btn {html.escape(position)}" data-esp-nav="{html.escape(target_page)}" title="{title}">'
+            f'<span class="mdi {icon_class}"></span></div>'
+        )
+    return "".join(rows)
+
+
+def _preview_modal_meta(preview_ui: dict[str, Any], target: str) -> dict[str, Any]:
+    modals = preview_ui.get("modals") if isinstance(preview_ui, dict) else {}
+    modal = modals.get(target) if isinstance(modals, dict) else None
+    return modal if isinstance(modal, dict) else {}
 
 
 def _render_summary_bar(chips: list[dict[str, Any]]) -> str:
@@ -578,6 +627,11 @@ def create_app(
         homeassistant_mode = is_home_assistant_app_mode()
         summary_bar = summary_bar_snapshot(homeassistant_mode=homeassistant_mode)
         preview_cards = preview_cards_snapshot(homeassistant_mode=homeassistant_mode)
+        preview_ui = preview_ui_snapshot(homeassistant_mode=homeassistant_mode)
+        preview_pages = _preview_page_map(preview_ui)
+        preview_home = preview_pages.get("home", {})
+        docker_modal = _preview_modal_meta(preview_ui, "docker")
+        vms_modal = _preview_modal_meta(preview_ui, "vms")
         preview_action_groups = preview_action_groups_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_dashboard = monitor_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
         monitor_details = monitor_detail_snapshot(homeassistant_mode=homeassistant_mode)
@@ -739,29 +793,15 @@ def create_app(
       <section class="mgroup span6">
         <h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-cellphone-cog"></span></span>ESP Screen Preview</h3>
         <div class="esp-preview-wrap">
-          <div class="esp-preview-toolbar">
-            <div class="esp-preview-tabs" id="espPreviewTabs">
-              <button class="secondary" type="button" data-esp-page="home"><span class="mdi mdi-home-outline" aria-hidden="true"></span>Home</button>
-              <button class="secondary" type="button" data-esp-page="docker"><span class="mdi mdi-docker" aria-hidden="true"></span>Docker</button>
-              <button class="secondary" type="button" data-esp-page="settings_1"><span class="mdi mdi-brightness-6" aria-hidden="true"></span>Settings 1</button>
-              <button class="secondary" type="button" data-esp-page="settings_2"><span class="mdi mdi-power" aria-hidden="true"></span>Settings 2</button>
-              <button class="secondary" type="button" data-esp-page="info_1"><span class="mdi mdi-access-point-network" aria-hidden="true"></span>Network</button>
-              <button class="secondary" type="button" data-esp-page="info_2"><span class="mdi mdi-monitor-dashboard" aria-hidden="true"></span>System</button>
-              <button class="secondary" type="button" data-esp-page="info_3"><span class="mdi mdi-thermometer" aria-hidden="true"></span>CPU Temp</button>
-              <button class="secondary" type="button" data-esp-page="info_4"><span class="mdi mdi-harddisk" aria-hidden="true"></span>Disk Temp</button>
-              <button class="secondary" type="button" data-esp-page="info_5"><span class="mdi mdi-chart-donut" aria-hidden="true"></span>Disk Usage</button>
-              <button class="secondary" type="button" data-esp-page="info_6"><span class="mdi mdi-graph-line" aria-hidden="true"></span>GPU</button>
-              <button class="secondary" type="button" data-esp-page="info_7"><span class="mdi mdi-timer-outline" aria-hidden="true"></span>Uptime</button>
-              <button class="secondary" type="button" data-esp-page="info_8"><span class="mdi mdi-card-text-outline" aria-hidden="true"></span>Host Name</button>
-              <button class="secondary" type="button" data-esp-page="vms"><span class="mdi mdi-monitor-multiple" aria-hidden="true"></span>VMS</button>
-            </div>
+            <div class="esp-preview-toolbar">
+            <div class="esp-preview-tabs" id="espPreviewTabs">{_render_preview_tabs(preview_ui)}</div>
           </div>
           <div class="esp-shell">
             <div class="esp-viewport" id="espPreviewViewport">
               <div class="esp-display-stage" id="espPreviewStage">
                 <div class="esp-screen home-mode" id="espPreviewScreen" tabindex="0">
                   <div class="esp-top" id="espPreviewTop">
-                    <div class="esp-top-title" id="espTopTitle">HOME</div>
+                    <div class="esp-top-title" id="espTopTitle">{html.escape(str(preview_home.get('title') or 'HOME'))}</div>
                     <div class="esp-top-pills" id="espTopPills"></div>
                     <div class="esp-page-indicator" id="espPageIndicator" aria-hidden="true"></div>
                   </div>
@@ -773,10 +813,7 @@ def create_app(
                       <div class="esp-home-cross-h left"></div>
                       <div class="esp-home-cross-h right"></div>
                       <div class="esp-home-ring"></div>
-                      <div class="esp-home-btn tl" data-esp-nav="docker" title="Docker"><span class="mdi mdi-docker"></span></div>
-                      <div class="esp-home-btn tr" data-esp-nav="vms" title="VMS"><span class="mdi mdi-monitor-multiple"></span></div>
-                      <div class="esp-home-btn bl" data-esp-nav="info_1" title="Info"><span class="mdi mdi-information-outline"></span></div>
-                      <div class="esp-home-btn br" data-esp-nav="settings_1" title="Settings"><span class="mdi mdi-cog-outline"></span></div>
+                      <div id="espHomeNavButtons">{_render_preview_home_buttons(preview_ui)}</div>
                       <div class="esp-home-center" title="Screen Saver"><span class="mdi mdi-database-outline"></span></div>
                     </div>
                   </div>
@@ -959,10 +996,10 @@ def create_app(
                 <div class="esp-preview-modal-card">
                   <div class="esp-preview-modal-header">
                     <div class="esp-preview-modal-heading">
-                      <span class="mdi mdi-docker"></span>
+                      <span class="mdi {html.escape(str(docker_modal.get('icon_class') or 'mdi-docker'))}"></span>
                       <div>
-                        <div class="esp-preview-modal-title">Docker</div>
-                        <div class="esp-preview-modal-subtitle">Container control</div>
+                        <div class="esp-preview-modal-title">{html.escape(str(docker_modal.get('title') or 'Docker'))}</div>
+                        <div class="esp-preview-modal-subtitle">{html.escape(str(docker_modal.get('subtitle') or 'Container control'))}</div>
                       </div>
                     </div>
                     <button class="esp-preview-modal-close" type="button" data-esp-modal-close="docker" aria-label="Close Docker preview">
@@ -983,10 +1020,10 @@ def create_app(
                 <div class="esp-preview-modal-card">
                   <div class="esp-preview-modal-header">
                     <div class="esp-preview-modal-heading">
-                      <span class="mdi mdi-monitor-multiple"></span>
+                      <span class="mdi {html.escape(str(vms_modal.get('icon_class') or 'mdi-monitor-multiple'))}"></span>
                       <div>
-                        <div class="esp-preview-modal-title">VMS</div>
-                        <div class="esp-preview-modal-subtitle">Virtual machine control</div>
+                        <div class="esp-preview-modal-title">{html.escape(str(vms_modal.get('title') or 'VMS'))}</div>
+                        <div class="esp-preview-modal-subtitle">{html.escape(str(vms_modal.get('subtitle') or 'Virtual machine control'))}</div>
                       </div>
                     </div>
                     <button class="esp-preview-modal-close" type="button" data-esp-modal-close="vms" aria-label="Close VM preview">
@@ -1008,7 +1045,7 @@ def create_app(
               </div>
             </div>
           </div>
-          <div class="esp-preview-meta"><span id="espFooterPage">Preview • HOME</span><span id="espFooterPort">Port: --</span></div>
+          <div class="esp-preview-meta"><span id="espFooterPage">Preview • {html.escape(str(preview_home.get('footer') or 'HOME'))}</span><span id="espFooterPort">Port: --</span></div>
           <div class="monitor-note">Interactive browser simulator driven by live bridge telemetry. Swipe in the preview, click HOME quadrants, or long-press Docker and VM rows for actions.</div>
         </div>
       </section>
@@ -1038,6 +1075,7 @@ def create_app(
 window.__HOST_METRICS_BOOT__ = {{
   nextLogId: {st['next_log_id']},
   nextCommLogId: {st.get('next_comm_log_id', 1)},
+  preview_ui: {json.dumps(preview_ui)},
 }};
 </script>
 <script src="/static/host/host_ui.js"></script>
@@ -1095,34 +1133,38 @@ window.__HOST_METRICS_BOOT__ = {{
     @app.get("/api/status")
     def api_status() -> Any:
         status = dict(pub.status())
+        homeassistant_mode = is_home_assistant_app_mode()
         cmd = status.get("cmd")
         if isinstance(cmd, list):
             status["cmd"] = redact_agent_command_args(cmd, REDACTED_SECRET_TEXT)
         status["integration_dashboard"] = integration_dashboard_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["monitor_dashboard"] = monitor_dashboard_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["monitor_details"] = monitor_detail_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["monitor_detail_payloads"] = monitor_detail_payload_snapshot(
-            status.get("last_metrics", {}), homeassistant_mode=is_home_assistant_app_mode()
+            status.get("last_metrics", {}), homeassistant_mode=homeassistant_mode
+        )
+        status["preview_ui"] = preview_ui_snapshot(
+            homeassistant_mode=homeassistant_mode
         )
         status["preview_cards"] = preview_cards_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["preview_action_groups"] = preview_action_groups_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["summary_bar"] = summary_bar_snapshot(
-            homeassistant_mode=is_home_assistant_app_mode()
+            homeassistant_mode=homeassistant_mode
         )
         status["integration_overview"] = integration_overview_snapshot(
             status.get("integration_health", {}),
             status.get("command_registry", []),
-            homeassistant_mode=is_home_assistant_app_mode(),
+            homeassistant_mode=homeassistant_mode,
         )
         return jsonify(status)
 

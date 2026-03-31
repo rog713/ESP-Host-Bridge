@@ -23,6 +23,7 @@ from esp_host_bridge.integrations import (
     monitor_detail_snapshot,
     preview_cards_snapshot,
     preview_action_groups_snapshot,
+    preview_ui_snapshot,
     redact_agent_command_args,
     summary_bar_snapshot,
 )
@@ -258,6 +259,31 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(docker_ha["subtext"], "On / Off / Issue")
         self.assertEqual(vms_ha["label"], "Integrations")
         self.assertEqual(vms_ha["icon_class"], "mdi-devices")
+
+    def test_preview_ui_snapshot_exposes_pages_tabs_and_modals(self) -> None:
+        default_ui = preview_ui_snapshot(homeassistant_mode=False)
+        homeassistant_ui = preview_ui_snapshot(homeassistant_mode=True)
+
+        self.assertEqual(default_ui["mode"], "host")
+        self.assertEqual(
+            default_ui["page_order"],
+            ["home", "docker", "settings_1", "settings_2", "info_1", "info_2", "info_3", "info_4", "info_5", "info_6", "info_7", "info_8", "vms"],
+        )
+        self.assertEqual(default_ui["pages"]["docker"]["title"], "Docker")
+        self.assertEqual(default_ui["pages"]["docker"]["nav"], {"down": "home"})
+        self.assertEqual(default_ui["pages"]["settings_1"]["nav"], {"up": "home", "left": "settings_2", "right": "settings_2"})
+        self.assertEqual(default_ui["pages"]["info_1"]["indicator_count"], 8)
+        self.assertEqual(default_ui["tabs"][0]["page_id"], "home")
+        self.assertEqual(default_ui["home_buttons"][0]["position"], "bl")
+        self.assertEqual(default_ui["modals"]["docker"]["title"], "Docker")
+        self.assertEqual(default_ui["modals"]["vms"]["icon_class"], "mdi-monitor-multiple")
+
+        self.assertEqual(homeassistant_ui["mode"], "homeassistant")
+        self.assertEqual(homeassistant_ui["pages"]["docker"]["title"], "Add-ons")
+        self.assertEqual(homeassistant_ui["pages"]["docker"]["tab_icon_class"], "mdi-puzzle-outline")
+        self.assertEqual(homeassistant_ui["pages"]["vms"]["title"], "INTEGRATIONS")
+        self.assertEqual(homeassistant_ui["modals"]["docker"]["subtitle"], "Home Assistant app control")
+        self.assertEqual(homeassistant_ui["modals"]["vms"]["title"], "Integrations")
 
     def test_summary_bar_snapshot_exposes_expected_chip_metadata(self) -> None:
         default_rows = summary_bar_snapshot(homeassistant_mode=False)

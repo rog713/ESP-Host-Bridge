@@ -9,6 +9,7 @@ from .base import (
     IntegrationSpec,
     PollContext,
     PreviewCardSpec,
+    PreviewPageSpec,
     SummaryChipSpec,
 )
 from .host import HOST_INTEGRATION
@@ -31,6 +32,7 @@ from .registry import (
     monitor_detail_payload_snapshot,
     preview_cards_snapshot,
     preview_action_groups_snapshot,
+    preview_ui_snapshot,
     poll_integrations,
     redact_agent_command_args,
     summary_bar_snapshot,
@@ -49,6 +51,7 @@ __all__ = [
     "HOST_INTEGRATION",
     "PollContext",
     "PreviewCardSpec",
+    "PreviewPageSpec",
     "command_registry_snapshot",
     "dispatch_integration_command",
     "integration_dashboard_snapshot",
@@ -67,6 +70,7 @@ __all__ = [
     "monitor_detail_payload_snapshot",
     "preview_cards_snapshot",
     "preview_action_groups_snapshot",
+    "preview_ui_snapshot",
     "poll_integrations",
     "redact_agent_command_args",
     "SummaryChipSpec",

@@ -140,6 +140,52 @@ class PreviewCardSpec:
 
 
 @dataclass(frozen=True)
+class PreviewPageSpec:
+    page_id: str
+    dom_id: str
+    preview_order: int
+    title: str
+    footer: str
+    tab_label: str = ""
+    tab_icon_class: str = ""
+    indicator_count: int = 0
+    indicator_index: int = 0
+    top_pills: Optional[str] = None
+    nav_up: Optional[str] = None
+    nav_down: Optional[str] = None
+    nav_left: Optional[str] = None
+    nav_right: Optional[str] = None
+    home_button_position: Optional[str] = None
+    home_button_title: str = ""
+    home_button_icon_class: str = ""
+    modal_target: Optional[str] = None
+    modal_title: str = ""
+    modal_subtitle: str = ""
+    modal_icon_class: str = ""
+    empty_title: str = ""
+    empty_subtitle: str = ""
+    token_missing_title: str = ""
+    token_missing_subtitle: str = ""
+    api_error_title: str = ""
+    api_error_subtitle: str = ""
+    homeassistant_title: Optional[str] = None
+    homeassistant_footer: Optional[str] = None
+    homeassistant_tab_label: Optional[str] = None
+    homeassistant_tab_icon_class: Optional[str] = None
+    homeassistant_home_button_title: Optional[str] = None
+    homeassistant_home_button_icon_class: Optional[str] = None
+    homeassistant_modal_title: Optional[str] = None
+    homeassistant_modal_subtitle: Optional[str] = None
+    homeassistant_modal_icon_class: Optional[str] = None
+    homeassistant_empty_title: Optional[str] = None
+    homeassistant_empty_subtitle: Optional[str] = None
+    homeassistant_token_missing_title: Optional[str] = None
+    homeassistant_token_missing_subtitle: Optional[str] = None
+    homeassistant_api_error_title: Optional[str] = None
+    homeassistant_api_error_subtitle: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class SummaryChipSpec:
     chip_id: str
     label: str
@@ -165,6 +211,7 @@ class IntegrationSpec:
     dashboard_groups: tuple[DashboardGroupSpec, ...] = ()
     dashboard_details: tuple[DashboardDetailSpec, ...] = ()
     preview_cards: tuple[PreviewCardSpec, ...] = ()
+    preview_pages: tuple[PreviewPageSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     cfg_to_agent_args: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None
     poll: Optional[Callable[[PollContext], Dict[str, Any]]] = None

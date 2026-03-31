@@ -8,42 +8,12 @@ if (!Number.isFinite(nextCommLogId) || nextCommLogId < 1) nextCommLogId = 1;
 let lastStatusPayload = null;
 let currentViewMode = 'setup';
 let currentEspPreviewPage = 'home';
-let currentWorkloadMode = 'host';
 let lastMonitorDashboardSignature = '';
 let lastMonitorDetailSignature = '';
 let lastPreviewCardSignature = '';
+let lastPreviewUiSignature = '';
 let mainLogRows = [];
 let hideMetricLogs = false;
-const ESP_PREVIEW_PAGE_ORDER = ['home', 'docker', 'settings_1', 'settings_2', 'info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6', 'info_7', 'info_8', 'vms'];
-const ESP_PREVIEW_META = {
-  home: { title: 'HOME', footer: 'HOME', count: 0, index: 0, topPills: null },
-  docker: { title: 'Docker', footer: 'Docker', count: 1, index: 1, topPills: 'docker' },
-  settings_1: { title: 'Settings', footer: 'Settings 1', count: 2, index: 1, topPills: null },
-  settings_2: { title: 'Settings', footer: 'Settings 2', count: 2, index: 2, topPills: null },
-  info_1: { title: 'NETWORK', footer: 'Info 1 • Network', count: 8, index: 1, topPills: null },
-  info_2: { title: 'SYSTEM', footer: 'Info 2 • System', count: 8, index: 2, topPills: null },
-  info_3: { title: 'CPU TEMP', footer: 'Info 3 • CPU Temp', count: 8, index: 3, topPills: null },
-  info_4: { title: 'DISK TEMP', footer: 'Info 4 • Disk Temp', count: 8, index: 4, topPills: null },
-  info_5: { title: 'DISK USAGE', footer: 'Info 5 • Disk Usage', count: 8, index: 5, topPills: null },
-  info_6: { title: 'GPU', footer: 'Info 6 • GPU', count: 8, index: 6, topPills: null },
-  info_7: { title: 'UPTIME', footer: 'Info 7 • Uptime', count: 8, index: 7, topPills: null },
-  info_8: { title: 'HOST NAME', footer: 'Info 8 • Host Name', count: 8, index: 8, topPills: null },
-  vms: { title: 'VMS', footer: 'VMS', count: 1, index: 1, topPills: 'vms' },
-};
-const ESP_PREVIEW_NAV = {
-  docker: { down: 'home' },
-  settings_1: { up: 'home', left: 'settings_2', right: 'settings_2' },
-  settings_2: { up: 'home', left: 'settings_1', right: 'settings_1' },
-  info_1: { up: 'home', left: 'info_2', right: 'info_8' },
-  info_2: { up: 'home', left: 'info_3', right: 'info_1' },
-  info_3: { up: 'home', left: 'info_4', right: 'info_2' },
-  info_4: { up: 'home', left: 'info_5', right: 'info_3' },
-  info_5: { up: 'home', left: 'info_6', right: 'info_4' },
-  info_6: { up: 'home', left: 'info_7', right: 'info_5' },
-  info_7: { up: 'home', left: 'info_8', right: 'info_6' },
-  info_8: { up: 'home', left: 'info_1', right: 'info_7' },
-  vms: { down: 'home' },
-};
 const ESP_PREVIEW_LONG_PRESS_MS = 420;
 const ESP_PREVIEW_SWIPE_THRESHOLD = 36;
 let espPreviewDockerItems = [];
@@ -60,70 +30,38 @@ const HIDE_METRIC_LOGS_KEY_LEGACY = 'host_metrics_hide_metric_logs_v1';
 const UI_SECTIONS_KEY = 'esp_host_bridge_ui_sections_v1';
 const UI_SECTIONS_KEY_LEGACY = 'host_metrics_ui_sections_v1';
 
-function getWorkloadMode(s) {
-  return (s && s.platform_mode === 'homeassistant') ? 'homeassistant' : 'host';
+function previewUiSnapshot(s) {
+  const preview = (s && s.preview_ui && typeof s.preview_ui === 'object') ? s.preview_ui : hostMetricsBoot.preview_ui;
+  return (preview && typeof preview === 'object') ? preview : {};
 }
-function getWorkloadLabels(mode) {
-  if (mode === 'homeassistant') {
-    return {
-      dockerTitle: 'Add-ons',
-      dockerPage: 'Add-ons',
-      dockerFooter: 'Add-ons',
-      dockerPreviewSub: 'On / Off / Issue',
-      dockerSummary: 'Started / Stopped / Issue',
-      dockerListHintEmpty: 'No Home Assistant add-ons in latest payload',
-      dockerListHintOne: 'Showing 1 add-on',
-      dockerListHintMany: (count) => `Showing ${count} add-ons`,
-      dockerListHintMore: (count, extra) => `Showing 5 of ${count} add-ons (+${extra} more)`,
-      dockerModalSub: 'Home Assistant app control',
-      vmTitle: 'Integrations',
-      vmPage: 'Integrations',
-      vmFooter: 'Integrations',
-      vmPreviewSub: 'Loaded integrations',
-      vmSummary: 'Loaded integrations',
-      vmListHintEmpty: 'No integrations in latest payload',
-      vmListHintOne: 'Showing 1 integration',
-      vmListHintMany: (count) => `Showing ${count} integrations`,
-      vmListHintMore: (count, extra) => `Showing 5 of ${count} integrations (+${extra} more)`,
-      vmModalSub: 'Loaded integration overview',
-      summaryLabel: 'Serial / HA',
-    };
-  }
-  return {
-    dockerTitle: 'Docker',
-    dockerPage: 'Docker',
-    dockerFooter: 'Docker',
-    dockerPreviewSub: 'Run / Stop / Unh',
-    dockerSummary: 'Run / Stop / Unhealthy',
-    dockerListHintEmpty: 'No Docker containers in latest payload',
-    dockerListHintOne: 'Showing 1 container',
-    dockerListHintMany: (count) => `Showing ${count} containers`,
-    dockerListHintMore: (count, extra) => `Showing 5 of ${count} containers (+${extra} more)`,
-    dockerModalSub: 'Container control',
-    vmTitle: 'VMs',
-    vmPage: 'VMS',
-    vmFooter: 'VMS',
-    vmPreviewSub: 'Run / Pause / Stop',
-    vmSummary: 'Run / Pause / Stop / Other',
-    vmListHintEmpty: 'No virtual machines in latest payload',
-    vmListHintOne: 'Showing 1 virtual machine',
-    vmListHintMany: (count) => `Showing ${count} virtual machines`,
-    vmListHintMore: (count, extra) => `Showing 5 of ${count} virtual machines (+${extra} more)`,
-    vmModalSub: 'Virtual machine control',
-    summaryLabel: 'Serial / Workloads',
-  };
+function previewUiMode(s) {
+  return previewUiSnapshot(s).mode === 'homeassistant' ? 'homeassistant' : 'host';
 }
-function getWorkloadIcons(mode) {
-  if (mode === 'homeassistant') {
-    return {
-      docker: 'mdi-puzzle-outline',
-      vm: 'mdi-devices',
-    };
-  }
-  return {
-    docker: 'mdi-docker',
-    vm: 'mdi-monitor-multiple',
-  };
+function previewPageOrder(s) {
+  const rows = previewUiSnapshot(s).page_order;
+  return Array.isArray(rows) && rows.length ? rows : ['home'];
+}
+function previewPageMeta(s, page) {
+  const pages = previewUiSnapshot(s).pages;
+  const map = (pages && typeof pages === 'object') ? pages : {};
+  const meta = map && map[page];
+  if (meta && typeof meta === 'object') return meta;
+  const home = map && map.home;
+  return (home && typeof home === 'object') ? home : { page_id: 'home', dom_id: 'espPageHome', title: 'HOME', footer: 'HOME', nav: {} };
+}
+function previewTabs(s) {
+  const rows = previewUiSnapshot(s).tabs;
+  return Array.isArray(rows) ? rows : [];
+}
+function previewHomeButtons(s) {
+  const rows = previewUiSnapshot(s).home_buttons;
+  return Array.isArray(rows) ? rows : [];
+}
+function previewModalMeta(s, target) {
+  const modals = previewUiSnapshot(s).modals;
+  const map = (modals && typeof modals === 'object') ? modals : {};
+  const meta = map && map[target];
+  return (meta && typeof meta === 'object') ? meta : {};
 }
 function setMetricCardHeading(valueId, iconClass, labelText) {
   const valueEl = document.getElementById(valueId);
@@ -137,55 +75,47 @@ function setCardHeading(valueId, labelText) {
   if (!labelEl) return;
   labelEl.textContent = labelText;
 }
-function refreshWorkloadLabels(mode) {
-  currentWorkloadMode = mode === 'homeassistant' ? 'homeassistant' : 'host';
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const icons = getWorkloadIcons(currentWorkloadMode);
-  setMetricCardHeading('mDOCKER', icons.docker, labels.dockerTitle);
-  setMetricCardHeading('mVMS', icons.vm, labels.vmTitle);
-  const dockerSub = document.getElementById('mDOCKER') && document.getElementById('mDOCKER').nextElementSibling;
-  const vmSub = document.getElementById('mVMS') && document.getElementById('mVMS').nextElementSibling;
-  if (dockerSub) dockerSub.textContent = labels.dockerPreviewSub;
-  if (vmSub) vmSub.textContent = labels.vmPreviewSub;
-  const summaryLabel = document.getElementById('sumWorkloads') && document.getElementById('sumWorkloads').parentElement && document.getElementById('sumWorkloads').parentElement.querySelector('.k');
-  if (summaryLabel) summaryLabel.textContent = labels.summaryLabel;
-  setCardHeading('mvDockerCounts', mode === 'homeassistant' ? 'Add-on Summary' : 'Docker Summary');
-  setCardHeading('mvVmCounts', mode === 'homeassistant' ? 'Integration Summary' : 'VM Summary');
-  const dockerTab = document.querySelector('[data-esp-page="docker"]');
-  const vmTab = document.querySelector('[data-esp-page="vms"]');
-  if (dockerTab) dockerTab.innerHTML = `<span class="mdi ${icons.docker}" aria-hidden="true"></span>${escapeHtml(labels.dockerPage)}`;
-  if (vmTab) vmTab.innerHTML = `<span class="mdi ${icons.vm}" aria-hidden="true"></span>${escapeHtml(labels.vmPage)}`;
-  const homeDocker = document.querySelector('[data-esp-nav="docker"]');
-  const homeVm = document.querySelector('[data-esp-nav="vms"]');
-  if (homeDocker) homeDocker.setAttribute('title', labels.dockerTitle);
-  if (homeVm) homeVm.setAttribute('title', labels.vmTitle);
-  const homeDockerIcon = homeDocker && homeDocker.querySelector('.mdi');
-  const homeVmIcon = homeVm && homeVm.querySelector('.mdi');
-  if (homeDockerIcon) homeDockerIcon.className = `mdi ${icons.docker}`;
-  if (homeVmIcon) homeVmIcon.className = `mdi ${icons.vm}`;
-  const dockerEmptyIcon = document.querySelector('#espDockerEmpty .mdi');
-  const vmEmptyIcon = document.querySelector('#espVmsEmpty .mdi');
-  if (dockerEmptyIcon) dockerEmptyIcon.className = `mdi ${icons.docker}`;
-  if (vmEmptyIcon) vmEmptyIcon.className = `mdi ${icons.vm}`;
-  const dockerModal = document.getElementById('espDockerModal');
-  const vmModal = document.getElementById('espVmsModal');
-  if (dockerModal) {
-    const icon = dockerModal.querySelector('.esp-preview-modal-heading .mdi');
-    const title = dockerModal.querySelector('.esp-preview-modal-title');
-    const subtitle = dockerModal.querySelector('.esp-preview-modal-subtitle');
-    if (icon) icon.className = `mdi ${icons.docker}`;
-    if (title) title.textContent = labels.dockerTitle;
-    if (subtitle) subtitle.textContent = labels.dockerModalSub;
+function renderPreviewUi(s) {
+  const preview = previewUiSnapshot(s);
+  const signature = JSON.stringify(preview);
+  if (signature === lastPreviewUiSignature) return;
+  lastPreviewUiSignature = signature;
+
+  const tabsBox = document.getElementById('espPreviewTabs');
+  if (tabsBox) {
+    tabsBox.innerHTML = previewTabs(s).map((tab) => {
+      const pageId = escapeHtml(String(tab && tab.page_id || 'home'));
+      const label = escapeHtml(String(tab && tab.label || pageId));
+      const iconClass = escapeHtml(String(tab && tab.icon_class || 'mdi-application-outline'));
+      return `<button class="secondary" type="button" data-esp-page="${pageId}"><span class="mdi ${iconClass}" aria-hidden="true"></span>${label}</button>`;
+    }).join('');
   }
-  if (vmModal) {
-    const icon = vmModal.querySelector('.esp-preview-modal-heading .mdi');
-    const title = vmModal.querySelector('.esp-preview-modal-title');
-    const subtitle = vmModal.querySelector('.esp-preview-modal-subtitle');
-    if (icon) icon.className = `mdi ${icons.vm}`;
-    if (title) title.textContent = labels.vmTitle;
-    if (subtitle) subtitle.textContent = labels.vmModalSub;
+
+  const homeButtonsBox = document.getElementById('espHomeNavButtons');
+  if (homeButtonsBox) {
+    homeButtonsBox.innerHTML = previewHomeButtons(s).map((button) => {
+      const target = escapeHtml(String(button && button.target_page || 'home'));
+      const position = escapeHtml(String(button && button.position || ''));
+      const title = escapeHtml(String(button && button.title || target));
+      const iconClass = escapeHtml(String(button && button.icon_class || 'mdi-circle-outline'));
+      return `<div class="esp-home-btn ${position}" data-esp-nav="${target}" title="${title}"><span class="mdi ${iconClass}"></span></div>`;
+    }).join('');
   }
-  renderPreviewActionGroups(lastStatusPayload || {});
+
+  ['docker', 'vms'].forEach((target) => {
+    const meta = previewModalMeta(s, target);
+    const modal = document.getElementById(target === 'docker' ? 'espDockerModal' : 'espVmsModal');
+    if (!modal) return;
+    const icon = modal.querySelector('.esp-preview-modal-heading .mdi');
+    const title = modal.querySelector('.esp-preview-modal-title');
+    const subtitle = modal.querySelector('.esp-preview-modal-subtitle');
+    if (icon) icon.className = `mdi ${String(meta && meta.icon_class || 'mdi-puzzle-outline')}`;
+    if (title) title.textContent = String(meta && meta.title || target.toUpperCase());
+    if (subtitle) subtitle.textContent = String(meta && meta.subtitle || '');
+  });
+
+  renderPreviewActionGroups(s);
+  setEspPreviewPage(currentEspPreviewPage);
 }
 function workloadMetricFlag(metrics, key) {
   if (!metrics || !Object.prototype.hasOwnProperty.call(metrics, key)) return null;
@@ -206,8 +136,8 @@ async function pollStatus() {
     if (startedEl) startedEl.textContent = started;
     if (exitEl) exitEl.textContent = s.last_exit ?? '--';
     lastStatusPayload = s;
+    renderPreviewUi(s);
     renderPreviewCards(s);
-    refreshWorkloadLabels(getWorkloadMode(s));
     updateTelemetryHealth(s);
     updateSerialHealth(s);
     updateHostNameStatus(s);
@@ -506,7 +436,7 @@ function updateMetricPreview(metrics) {
   const cards = previewCards(lastStatusPayload || {});
   if (!cards.length) return;
   cards.forEach((card) => {
-    metricText(`m${String(card && card.card_id || '').trim()}`, previewCardText(card, m, currentWorkloadMode));
+    metricText(`m${String(card && card.card_id || '').trim()}`, previewCardText(card, m, previewUiMode(lastStatusPayload)));
   });
 }
 
@@ -636,18 +566,15 @@ function countVmPreviewItems(items) {
 function buildEspHeadPillHtml(kind, label, value) {
   return `<div class="esp-head-pill ${kind}"><span class="k">${escapeHtml(label)}</span><span class="n">${escapeHtml(value)}</span></div>`;
 }
-function getEspPreviewMeta(page) {
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  if (page === 'docker') return { title: labels.dockerTitle, footer: labels.dockerFooter, count: 1, index: 1, topPills: 'docker' };
-  if (page === 'vms') return { title: labels.vmPage.toUpperCase(), footer: labels.vmFooter, count: 1, index: 1, topPills: 'vms' };
-  return ESP_PREVIEW_META[page] || ESP_PREVIEW_META.home;
+function getEspPreviewMeta(page, s) {
+  return previewPageMeta(s || lastStatusPayload, page);
 }
 function renderEspPageIndicator() {
   const el = document.getElementById('espPageIndicator');
   if (!el) return;
-  const meta = getEspPreviewMeta(currentEspPreviewPage);
-  const count = Number(meta.count || 0);
-  const index = Number(meta.index || 0);
+  const meta = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload);
+  const count = Number(meta.indicator_count || 0);
+  const index = Number(meta.indicator_index || 0);
   if (!count) {
     el.innerHTML = '';
     return;
@@ -662,11 +589,11 @@ function renderEspTopPills() {
   el.innerHTML = '';
 }
 function refreshEspPreviewChrome() {
-  const meta = getEspPreviewMeta(currentEspPreviewPage);
+  const meta = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload);
   const title = document.getElementById('espTopTitle');
   const footer = document.getElementById('espFooterPage');
-  if (title) title.textContent = meta.title;
-  if (footer) footer.textContent = `Preview • ${meta.footer}`;
+  if (title) title.textContent = String(meta.title || 'HOME');
+  if (footer) footer.textContent = `Preview • ${String(meta.footer || 'HOME')}`;
   renderEspPageIndicator();
   renderEspTopPills();
 }
@@ -760,48 +687,47 @@ function openEspPreviewModal(type, index) {
 }
 function navigateEspPreview(direction) {
   if (espPreviewActiveModal) return;
-  const next = ESP_PREVIEW_NAV[currentEspPreviewPage] && ESP_PREVIEW_NAV[currentEspPreviewPage][direction];
+  const nav = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload).nav || {};
+  const next = nav && nav[direction];
   if (next) setEspPreviewPage(next);
 }
 function setEspPreviewPage(page) {
-  const next = ESP_PREVIEW_PAGE_ORDER.includes(page) ? page : 'home';
+  const order = previewPageOrder(lastStatusPayload);
+  const next = order.includes(page) ? page : 'home';
   currentEspPreviewPage = next;
   document.querySelectorAll('[data-esp-page]').forEach((btn)=> {
     btn.classList.toggle('active', btn.getAttribute('data-esp-page') === next);
   });
   const screen = document.getElementById('espPreviewScreen');
   if (screen) screen.classList.toggle('home-mode', next === 'home');
-  const pages = {
-    home: document.getElementById('espPageHome'),
-    docker: document.getElementById('espPageDocker'),
-    settings_1: document.getElementById('espPageSettings1'),
-    settings_2: document.getElementById('espPageSettings2'),
-    info_1: document.getElementById('espPageInfo1'),
-    info_2: document.getElementById('espPageInfo2'),
-    info_3: document.getElementById('espPageInfo3'),
-    info_4: document.getElementById('espPageInfo4'),
-    info_5: document.getElementById('espPageInfo5'),
-    info_6: document.getElementById('espPageInfo6'),
-    info_7: document.getElementById('espPageInfo7'),
-    info_8: document.getElementById('espPageInfo8'),
-    vms: document.getElementById('espPageVms'),
-  };
-  Object.entries(pages).forEach(([k, el]) => { if (el) el.classList.toggle('active', k === next); });
+  previewPageOrder(lastStatusPayload).forEach((pageId) => {
+    const meta = getEspPreviewMeta(pageId, lastStatusPayload);
+    const el = document.getElementById(String(meta.dom_id || ''));
+    if (el) el.classList.toggle('active', pageId === next);
+  });
   closeEspPreviewModal();
   refreshEspPreviewChrome();
   try { localStorage.setItem(ESP_PREVIEW_PAGE_KEY, next); } catch (_) {}
 }
 function initEspPreview() {
-  document.querySelectorAll('[data-esp-page]').forEach((btn)=> {
-    btn.addEventListener('click', () => setEspPreviewPage(btn.getAttribute('data-esp-page') || 'home'));
-  });
-  document.querySelectorAll('[data-esp-nav]').forEach((el)=> {
-    el.addEventListener('click', (ev) => {
+  const tabsBox = document.getElementById('espPreviewTabs');
+  if (tabsBox) {
+    tabsBox.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-esp-page]');
+      if (!btn) return;
+      setEspPreviewPage(btn.getAttribute('data-esp-page') || 'home');
+    });
+  }
+  const homeButtonsBox = document.getElementById('espHomeNavButtons');
+  if (homeButtonsBox) {
+    homeButtonsBox.addEventListener('click', (ev) => {
+      const el = ev.target.closest('[data-esp-nav]');
+      if (!el) return;
       ev.preventDefault();
       ev.stopPropagation();
       setEspPreviewPage(el.getAttribute('data-esp-nav') || 'home');
     });
-  });
+  }
   const screen = document.getElementById('espPreviewScreen');
   const top = document.getElementById('espPreviewTop');
   if (top) {
@@ -1038,6 +964,8 @@ function renderEspDockerRows(items, stateMode) {
   const list = document.getElementById('espDockerRows');
   const empty = document.getElementById('espDockerEmpty');
   if (!list || !empty) return;
+  const mode = previewUiMode(lastStatusPayload);
+  const pageMeta = getEspPreviewMeta('docker', lastStatusPayload);
   const rows = (Array.isArray(items) ? items : []).slice(0, 10);
   if (!rows.length) {
     list.innerHTML = '';
@@ -1045,24 +973,24 @@ function renderEspDockerRows(items, stateMode) {
     const subtitle = empty.querySelector('.esp-workload-empty-subtitle');
     const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
     const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HADOCKAPI');
-    if (currentWorkloadMode === 'homeassistant' && token === 0) {
-      if (title) title.textContent = 'Token Missing';
-      if (subtitle) subtitle.textContent = 'Supervisor token is not available to the app';
-    } else if (currentWorkloadMode === 'homeassistant' && api === 0) {
-      if (title) title.textContent = 'Add-on API Error';
-      if (subtitle) subtitle.textContent = 'Check app logs for Supervisor API errors';
+    if (mode === 'homeassistant' && token === 0) {
+      if (title) title.textContent = String(pageMeta.token_missing_title || 'Token Missing');
+      if (subtitle) subtitle.textContent = String(pageMeta.token_missing_subtitle || 'Supervisor token is not available to the app');
+    } else if (mode === 'homeassistant' && api === 0) {
+      if (title) title.textContent = String(pageMeta.api_error_title || 'Add-on API Error');
+      if (subtitle) subtitle.textContent = String(pageMeta.api_error_subtitle || 'Check app logs for Supervisor API errors');
     } else {
-      if (title) title.textContent = currentWorkloadMode === 'homeassistant' ? 'No Add-ons' : 'No Docker Data';
-      if (subtitle) subtitle.textContent = currentWorkloadMode === 'homeassistant' ? 'No add-ons in the latest payload' : 'No containers in the latest payload';
+      if (title) title.textContent = String(pageMeta.empty_title || 'No Docker Data');
+      if (subtitle) subtitle.textContent = String(pageMeta.empty_subtitle || 'No containers in the latest payload');
     }
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
+  const iconClass = String(pageMeta.home_button_icon_class || pageMeta.tab_icon_class || 'mdi-docker');
   list.innerHTML = rows.map((item, index) => {
-    const icons = getWorkloadIcons(currentWorkloadMode);
     return `<button class="esp-workload-row" type="button" data-esp-modal-row="docker" data-esp-index="${index}">
-      <span class="mdi ${icons.docker}" aria-hidden="true"></span>
+      <span class="mdi ${escapeHtml(iconClass)}" aria-hidden="true"></span>
       <span class="esp-workload-row-name">${escapeHtml(item.name)}</span>
     </button>`;
   }).join('');
@@ -1071,6 +999,8 @@ function renderEspVmRows(items, stateMode) {
   const list = document.getElementById('espVmsRows');
   const empty = document.getElementById('espVmsEmpty');
   if (!list || !empty) return;
+  const mode = previewUiMode(lastStatusPayload);
+  const pageMeta = getEspPreviewMeta('vms', lastStatusPayload);
   const rows = (Array.isArray(items) ? items : []).slice(0, 10);
   if (!rows.length) {
     list.innerHTML = '';
@@ -1078,59 +1008,25 @@ function renderEspVmRows(items, stateMode) {
     const subtitle = empty.querySelector('.esp-workload-empty-subtitle');
     const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
     const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HAVMSAPI');
-    if (currentWorkloadMode === 'homeassistant' && token === 0) {
-      if (title) title.textContent = 'Token Missing';
-      if (subtitle) subtitle.textContent = 'Supervisor token is not available to the app';
-    } else if (currentWorkloadMode === 'homeassistant' && api === 0) {
-      if (title) title.textContent = 'Integration API Error';
-      if (subtitle) subtitle.textContent = 'Check app logs for Core WebSocket errors';
+    if (mode === 'homeassistant' && token === 0) {
+      if (title) title.textContent = String(pageMeta.token_missing_title || 'Token Missing');
+      if (subtitle) subtitle.textContent = String(pageMeta.token_missing_subtitle || 'Supervisor token is not available to the app');
+    } else if (mode === 'homeassistant' && api === 0) {
+      if (title) title.textContent = String(pageMeta.api_error_title || 'Integration API Error');
+      if (subtitle) subtitle.textContent = String(pageMeta.api_error_subtitle || 'Check app logs for Core WebSocket errors');
     } else {
-      if (title) title.textContent = currentWorkloadMode === 'homeassistant' ? 'No Integrations' : 'No VM Data';
-      if (subtitle) subtitle.textContent = currentWorkloadMode === 'homeassistant' ? 'No integrations in the latest payload' : 'No virtual machines in the latest payload';
+      if (title) title.textContent = String(pageMeta.empty_title || 'No VM Data');
+      if (subtitle) subtitle.textContent = String(pageMeta.empty_subtitle || 'No virtual machines in the latest payload');
     }
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
-  const icons = getWorkloadIcons(currentWorkloadMode);
+  const iconClass = String(pageMeta.home_button_icon_class || pageMeta.tab_icon_class || 'mdi-monitor-multiple');
   list.innerHTML = rows.map((item, index) => `<button class="esp-workload-row" type="button" data-esp-modal-row="vms" data-esp-index="${index}">
-      <span class="mdi ${icons.vm}" aria-hidden="true"></span>
+      <span class="mdi ${escapeHtml(iconClass)}" aria-hidden="true"></span>
       <span class="esp-workload-row-name">${escapeHtml(item.name)}</span>
     </button>`).join('');
-}
-function renderDockerLists(items, detailId = 'docker_list') {
-  const prev = document.getElementById(`${detailId}PreviewList`); const all = document.getElementById(`${detailId}AllList`); const hint = document.getElementById(`${detailId}MoreHint`);
-  if (!prev || !all || !hint) return;
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + (it.state === 'up' ? 'up' : 'down') + '">' + it.state + '</span></li>';
-  prev.innerHTML = items.slice(0,5).map(rowHtml).join('');
-  all.innerHTML = items.map(rowHtml).join('');
-  const extra = Math.max(0, items.length - 5);
-  const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
-  const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HADOCKAPI');
-  if (!items.length && currentWorkloadMode === 'homeassistant' && token === 0) hint.textContent = 'Supervisor token missing in app container';
-  else if (!items.length && currentWorkloadMode === 'homeassistant' && api === 0) hint.textContent = 'Add-on API unavailable; check logs';
-  else if (!items.length) hint.textContent = labels.dockerListHintEmpty;
-  else if (extra) hint.textContent = labels.dockerListHintMore(items.length, extra);
-  else if (items.length === 1) hint.textContent = labels.dockerListHintOne;
-  else hint.textContent = labels.dockerListHintMany(items.length);
-}
-function renderVmLists(items, detailId = 'vm_list') {
-  const prev = document.getElementById(`${detailId}PreviewList`); const all = document.getElementById(`${detailId}AllList`); const hint = document.getElementById(`${detailId}MoreHint`);
-  if (!prev || !all || !hint) return;
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + it.stateKey + '">' + it.stateLabel + '</span></li>';
-  prev.innerHTML = items.slice(0,5).map(rowHtml).join('');
-  all.innerHTML = items.map(rowHtml).join('');
-  const extra = Math.max(0, items.length - 5);
-  const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
-  const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HAVMSAPI');
-  if (!items.length && currentWorkloadMode === 'homeassistant' && token === 0) hint.textContent = 'Supervisor token missing in app container';
-  else if (!items.length && currentWorkloadMode === 'homeassistant' && api === 0) hint.textContent = 'Integration registry unavailable; check logs';
-  else if (!items.length) hint.textContent = labels.vmListHintEmpty;
-  else if (extra) hint.textContent = labels.vmListHintMore(items.length, extra);
-  else if (items.length === 1) hint.textContent = labels.vmListHintOne;
-  else hint.textContent = labels.vmListHintMany(items.length);
 }
 function monitorDetailPayloads(s) {
   return (s && s.monitor_detail_payloads && typeof s.monitor_detail_payloads === 'object') ? s.monitor_detail_payloads : {};
@@ -1510,8 +1406,7 @@ function updateMonitorCardsFromMetadata(s, workloadMode) {
 }
 function updateMonitorDashboard(s) {
   if (!s || typeof s !== 'object') return;
-  const workloadMode = getWorkloadMode(s);
-  currentWorkloadMode = workloadMode;
+  const workloadMode = previewUiMode(s);
   renderMonitorDashboardSections(s);
   renderMonitorDetailSections(s);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
