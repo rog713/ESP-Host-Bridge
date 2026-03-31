@@ -1773,11 +1773,20 @@ async function detectHostPowerDefaults() {
   try {
     const r = await fetch('/api/host-power-defaults');
     const data = await r.json();
-    if (data && typeof data.shutdown_cmd === 'string') shutdownEl.value = data.shutdown_cmd;
-    if (data && typeof data.restart_cmd === 'string') restartEl.value = data.restart_cmd;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    const byId = Object.create(null);
+    for (const item of items) {
+      if (!item || typeof item.command_id !== 'string') continue;
+      byId[item.command_id] = item;
+    }
+    if (byId.host_shutdown && typeof byId.host_shutdown.default_command === 'string') shutdownEl.value = byId.host_shutdown.default_command;
+    else if (data && typeof data.shutdown_cmd === 'string') shutdownEl.value = data.shutdown_cmd;
+    if (byId.host_restart && typeof byId.host_restart.default_command === 'string') restartEl.value = byId.host_restart.default_command;
+    else if (data && typeof data.restart_cmd === 'string') restartEl.value = data.restart_cmd;
     const osName = (data && data.os) ? data.os : 'host';
+    const loadedCount = items.filter((item) => item && typeof item.default_command === 'string' && item.default_command).length;
     if ((shutdownEl.value || restartEl.value)) {
-      result.textContent = `Loaded defaults for ${osName}`;
+      result.textContent = `Loaded ${loadedCount || 0} registered host power defaults for ${osName}`;
       result.style.color = 'var(--accent)';
     } else {
       result.textContent = `No defaults available for ${osName}`;

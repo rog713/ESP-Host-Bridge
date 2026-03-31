@@ -44,8 +44,8 @@ from .runtime import (
     _mdi_codepoint_map_cache,
     _mdi_codepoint_map_cache_err,
     _mdi_codepoint_map_lock,
+    build_host_power_command_defaults,
     build_host_power_command_previews,
-    detect_host_power_command_defaults,
     fmt_ts,
     is_home_assistant_app_mode,
     RunnerManager,
@@ -1042,7 +1042,7 @@ window.__HOST_METRICS_BOOT__ = {{
     if not is_home_assistant_app_mode():
         @app.get("/api/host-power-defaults")
         def api_host_power_defaults() -> Any:
-            return jsonify(detect_host_power_command_defaults())
+            return jsonify(build_host_power_command_defaults())
 
         @app.post("/api/host-power-preview")
         def api_host_power_preview() -> Any:

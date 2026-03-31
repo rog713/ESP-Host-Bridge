@@ -19,7 +19,11 @@ from esp_host_bridge.integrations import (
 )
 from esp_host_bridge.integrations import registry as registry_mod
 from esp_host_bridge.integrations.base import CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec
-from esp_host_bridge.runtime import RunnerManager, build_host_power_command_previews
+from esp_host_bridge.runtime import (
+    RunnerManager,
+    build_host_power_command_defaults,
+    build_host_power_command_previews,
+)
 
 
 class IntegrationRegistryTests(unittest.TestCase):
@@ -221,6 +225,24 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(by_id["host_shutdown"]["command"], "/fake/shutdown")
         self.assertEqual(by_id["host_restart"]["trigger"], "restart")
         self.assertEqual(by_id["host_restart"]["command"], "/fake/restart")
+
+    def test_host_power_defaults_follow_registered_host_commands(self) -> None:
+        with mock.patch(
+            "esp_host_bridge.runtime.detect_host_power_command_defaults",
+            return_value={
+                "os": "linux",
+                "shutdown_cmd": "systemctl poweroff",
+                "restart_cmd": "systemctl reboot",
+            },
+        ):
+            defaults = build_host_power_command_defaults()
+
+        self.assertEqual(defaults["os"], "linux")
+        by_id = {row["command_id"]: row for row in defaults["items"]}
+        self.assertEqual(by_id["host_shutdown"]["trigger"], "shutdown")
+        self.assertEqual(by_id["host_shutdown"]["default_command"], "systemctl poweroff")
+        self.assertEqual(by_id["host_restart"]["trigger"], "restart")
+        self.assertEqual(by_id["host_restart"]["default_command"], "systemctl reboot")
 
 
 if __name__ == "__main__":

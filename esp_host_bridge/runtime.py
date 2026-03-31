@@ -307,6 +307,35 @@ def detect_host_power_command_defaults() -> Dict[str, str]:
         }
     return {"os": system or "unknown", "shutdown_cmd": "", "restart_cmd": ""}
 
+
+def build_host_power_command_defaults() -> Dict[str, Any]:
+    defaults = detect_host_power_command_defaults()
+    runtime_cmd_by_id = {
+        "host_shutdown": ("shutdown", defaults.get("shutdown_cmd", "")),
+        "host_restart": ("restart", defaults.get("restart_cmd", "")),
+    }
+    items: list[Dict[str, Any]] = []
+    for spec in get_registered_commands():
+        if spec.owner_id != "host":
+            continue
+        runtime_cmd, default_command = runtime_cmd_by_id.get(spec.command_id, ("", ""))
+        items.append(
+            {
+                "command_id": spec.command_id,
+                "label": spec.label,
+                "trigger": spec.patterns[0] if spec.patterns else runtime_cmd,
+                "default_command": default_command,
+                "destructive": bool(spec.destructive),
+                "confirmation_text": spec.confirmation_text or None,
+            }
+        )
+    return {
+        "os": defaults.get("os", "unknown"),
+        "shutdown_cmd": defaults.get("shutdown_cmd", ""),
+        "restart_cmd": defaults.get("restart_cmd", ""),
+        "items": items,
+    }
+
 def resolve_host_command_argv(
     cmd: str,
     use_sudo: bool = False,
