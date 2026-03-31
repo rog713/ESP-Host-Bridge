@@ -77,3 +77,64 @@ Current plan:
 - do not redesign the serial protocol while the Web UI metadata refactor is still settling
 
 That keeps ESPHome firmware compatibility stable while integrations and Web UI structure evolve on the backend.
+
+### Current host-mode frame layout
+
+The runtime currently rotates five compact frames in host mode via `build_status_line()`.
+
+Frame 0:
+
+- `CPU`
+- `TEMP`
+- `MEM`
+- `UP`
+- `RX`
+- `TX`
+- `IFACE`
+- `TEMPAV`
+- `HAMODE`
+- `HATOKEN`
+- `HADOCKAPI`
+- `HAVMSAPI`
+- `GPUEN`
+- `DOCKEREN`
+- `VMSEN`
+- `POWER`
+
+Frame 1:
+
+- `DISK`
+- `DISKPCT`
+- `DISKR`
+- `DISKW`
+- `FAN`
+- `DISKTAV`
+- `FANAV`
+- `POWER`
+
+Frame 2:
+
+- `GPUT`
+- `GPUU`
+- `GPUVM`
+- `GPUAV`
+- `POWER`
+
+Frame 3:
+
+- `DOCKRUN`
+- `DOCKSTOP`
+- `DOCKUNH`
+- `DOCKER`
+- `POWER`
+
+Frame 4:
+
+- `VMSRUN`
+- `VMSSTOP`
+- `VMSPAUSE`
+- `VMSOTHER`
+- `VMS`
+- `POWER`
+
+This layout is pinned by `tests/test_usb_payload_contract.py`.
