@@ -450,16 +450,16 @@ function fmtEspUptime(v) {
   const m = Math.floor((n % 3600) / 60);
   return `${d}d ${h}h ${m}m`;
 }
-function fmtEspMbps(kbps) {
+function fmtEspMBps(kbps) {
   const n = Number(kbps);
   if (!Number.isFinite(n)) return '--';
-  const mbps = n / 1000;
-  if (mbps < 10) return mbps.toFixed(2);
-  if (mbps < 100) return mbps.toFixed(1);
-  return Math.round(mbps).toString();
+  const MBps = n / 8000;
+  if (MBps < 10) return MBps.toFixed(2);
+  if (MBps < 100) return MBps.toFixed(1);
+  return Math.round(MBps).toString();
 }
 function pickNetScaleKbps(values) {
-  const buckets = [1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2500000, 5000000];
+  const buckets = [2000, 4000, 8000, 20000, 40000, 80000, 200000, 400000, 800000, 1000000, 2000000, 2500000, 5000000];
   const maxValue = Math.max(1, ...((Array.isArray(values) ? values : []).map((v) => Number(v) || 0)));
   for (const bucket of buckets) {
     if (maxValue <= bucket) return bucket;
@@ -468,10 +468,14 @@ function pickNetScaleKbps(values) {
 }
 function fmtNetScaleLabel(kbps) {
   const n = Math.max(1, Math.round(Number(kbps) || 0));
-  if (n >= 1000000) {
-    return Number.isInteger(n / 1000000) ? `${n / 1000000} Gb/s` : `${(n / 1000000).toFixed(1)} Gb/s`;
+  const MBps = n / 8000;
+  if (MBps >= 1000) {
+    const GBps = MBps / 1000;
+    return Number.isInteger(GBps) ? `${GBps} GB/s` : `${GBps.toFixed(1)} GB/s`;
   }
-  return Number.isInteger(n / 1000) ? `${n / 1000} Mb/s` : `${(n / 1000).toFixed(1)} Mb/s`;
+  if (MBps >= 100 || Math.abs(MBps - Math.round(MBps)) < 0.05) return `${Math.round(MBps)} MB/s`;
+  if (MBps >= 10) return `${MBps.toFixed(1)} MB/s`;
+  return `${MBps.toFixed(2)} MB/s`;
 }
 function setEspSliderValue(fillId, knobId, value, maxValue) {
   const max = Math.max(1, Number(maxValue) || 255);
@@ -1465,8 +1469,8 @@ function updateEspPreview(s) {
   const gpuTempHist = historyOf(s,'GPUT');
   const host = (s && typeof s.host_name === 'string') ? s.host_name.trim() : '';
 
-  metricText('espNetRxVal', rx !== null ? fmtEspMbps(rx) : '--');
-  metricText('espNetTxVal', tx !== null ? fmtEspMbps(tx) : '--');
+  metricText('espNetRxVal', rx !== null ? fmtEspMBps(rx) : '--');
+  metricText('espNetTxVal', tx !== null ? fmtEspMBps(tx) : '--');
   const netGraphEl = document.getElementById('espNetGraph');
   const netLoadingEl = document.getElementById('espNetLoading');
   const netScaleEl = document.getElementById('espNetScale');

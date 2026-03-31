@@ -305,7 +305,7 @@ def _render_preview_page(page: dict[str, Any]) -> str:
         graph_id = html.escape(str(render_data.get("graph_id") or ""))
         loading_id = html.escape(str(render_data.get("loading_id") or ""))
         scale_id = html.escape(str(render_data.get("scale_id") or ""))
-        scale_html = f'<div class="esp-sys-scale" id="{scale_id}">10 Mb/s</div>' if scale_id else ""
+        scale_html = f'<div class="esp-sys-scale" id="{scale_id}">1 MB/s</div>' if scale_id else ""
         body = (
             '<div class="esp-dualmetric-page">'
             '<div class="esp-page-hint"></div>'
