@@ -19,9 +19,9 @@ It runs on the host, reads local metrics, and sends compact updates to the ESP o
 
 ## Also Available
 
-If you want the Home Assistant add-on instead of the standalone Linux install, use:
+If you want the Home Assistant add-on instead of the standalone Linux install, use the packaging target in:
 
-- Home Assistant add-on: `https://github.com/rog713/ESP-Host-Bridge-Addon`
+- `homeassistant_addon/`
 
 ## Requirements
 
@@ -169,6 +169,3 @@ CPU TEMP
 - The configuration file is created automatically on first run.
 - The Web UI is the main way to manage settings.
 - If you enable direct Web UI protection and forget the password, remove or edit the generated `config.json` and start again.
-- Developer docs:
-  - `docs/status-contract.md`
-  - `docs/integration-model.md`
