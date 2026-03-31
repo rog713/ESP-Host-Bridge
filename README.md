@@ -54,6 +54,26 @@ curl -fsSL https://raw.githubusercontent.com/rog713/ESP-Host-Bridge/main/install
   sudo ESP_HOST_BRIDGE_INSTALL_DIR=/home/$USER/esp-host-bridge ESP_HOST_BRIDGE_USER=$USER bash
 ```
 
+For macOS bootstrap install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rog713/ESP-Host-Bridge/main/install-mac.sh | bash
+```
+
+The macOS installer:
+
+- installs into `~/Applications/esp-host-bridge` by default
+- creates a virtual environment in that directory
+- stores config in `~/Library/Application Support/ESP Host Bridge/config.json`
+- installs a user LaunchAgent unless `ESP_HOST_BRIDGE_ENABLE_LAUNCH_AGENT=0`
+
+Optional Homebrew tools can be installed during bootstrap:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rog713/ESP-Host-Bridge/main/install-mac.sh | \
+  ESP_HOST_BRIDGE_INSTALL_BREW_TOOLS=1 bash
+```
+
 ## Run
 
 Start the Web UI:
@@ -71,6 +91,31 @@ esp-host-bridge-mac webui
 Open:
 
 - `http://127.0.0.1:8654`
+
+## Service Control
+
+For Ubuntu installs created by `install-ubuntu.sh`:
+
+```bash
+sudo systemctl status esp-host-bridge.service
+sudo systemctl restart esp-host-bridge.service
+sudo systemctl stop esp-host-bridge.service
+sudo systemctl start esp-host-bridge.service
+```
+
+For macOS installs created by `install-mac.sh`:
+
+```bash
+launchctl list | rg com.rog713.esp-host-bridge
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.rog713.esp-host-bridge.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.rog713.esp-host-bridge.plist
+```
+
+Manual foreground run on macOS without the LaunchAgent:
+
+```bash
+~/Applications/esp-host-bridge/.venv/bin/esp-host-bridge-mac webui
+```
 
 ## Basic use
 
