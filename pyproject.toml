@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "esp-host-bridge"
-version = "2026.03.31.2"
+version = "2026.03.31.3"
 description = "Local USB CDC bridge and web UI for ESPHome host telemetry"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,8 +20,10 @@ esp-host-bridge = "esp_host_bridge.cli:main"
 esp-host-bridge-mac = "esp_host_bridge.mac:main"
 
 [tool.setuptools]
-packages = ["esp_host_bridge"]
 include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["esp_host_bridge*"]
 
 [tool.setuptools.package-data]
 esp_host_bridge = ["host_ui.css", "host_ui.js"]

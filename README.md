@@ -17,6 +17,11 @@ It runs on the host, reads local metrics, and sends compact updates to the ESP o
 
 ![ESP Host Bridge Web UI](images/webui-dashboard.png)
 
+Status and integration contracts:
+
+- `docs/status-contract.md`
+- `docs/integration-model.md`
+
 ## Also Available
 
 If you want the Home Assistant add-on instead of the standalone Linux install, use:
@@ -25,7 +30,7 @@ If you want the Home Assistant add-on instead of the standalone Linux install, u
 
 ## Requirements
 
-- Linux
+- Linux or macOS
 - Python 3.9+
 - a connected ESP device over USB serial
 
@@ -60,6 +65,12 @@ Start the Web UI:
 
 ```bash
 esp-host-bridge webui
+```
+
+On macOS, use the wrapper entrypoint so the Web UI and agent pick up the macOS-specific overrides:
+
+```bash
+esp-host-bridge-mac webui
 ```
 
 Open:
@@ -118,3 +129,9 @@ CPU TEMP
 - The configuration file is created automatically on first run.
 - The Web UI is the main way to manage settings.
 - If you enable direct Web UI protection and forget the password, remove or edit the generated `config.json` and start again.
+
+## Development Notes
+
+- The current architecture uses an integration registry plus normalized runtime snapshot adapters.
+- Browser contract details live in `docs/status-contract.md`.
+- Backend integration architecture notes live in `docs/integration-model.md`.

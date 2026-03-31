@@ -8,39 +8,12 @@ if (!Number.isFinite(nextCommLogId) || nextCommLogId < 1) nextCommLogId = 1;
 let lastStatusPayload = null;
 let currentViewMode = 'setup';
 let currentEspPreviewPage = 'home';
-let currentWorkloadMode = 'host';
+let lastMonitorDashboardSignature = '';
+let lastMonitorDetailSignature = '';
+let lastPreviewCardSignature = '';
+let lastPreviewUiSignature = '';
 let mainLogRows = [];
 let hideMetricLogs = false;
-const ESP_PREVIEW_PAGE_ORDER = ['home', 'docker', 'settings_1', 'settings_2', 'info_1', 'info_2', 'info_3', 'info_4', 'info_5', 'info_6', 'info_7', 'info_8', 'vms'];
-const ESP_PREVIEW_META = {
-  home: { title: 'HOME', footer: 'HOME', count: 0, index: 0, topPills: null },
-  docker: { title: 'Docker', footer: 'Docker', count: 1, index: 1, topPills: 'docker' },
-  settings_1: { title: 'Settings', footer: 'Settings 1', count: 2, index: 1, topPills: null },
-  settings_2: { title: 'Settings', footer: 'Settings 2', count: 2, index: 2, topPills: null },
-  info_1: { title: 'NETWORK', footer: 'Info 1 • Network', count: 8, index: 1, topPills: null },
-  info_2: { title: 'SYSTEM', footer: 'Info 2 • System', count: 8, index: 2, topPills: null },
-  info_3: { title: 'CPU TEMP', footer: 'Info 3 • CPU Temp', count: 8, index: 3, topPills: null },
-  info_4: { title: 'DISK TEMP', footer: 'Info 4 • Disk Temp', count: 8, index: 4, topPills: null },
-  info_5: { title: 'DISK USAGE', footer: 'Info 5 • Disk Usage', count: 8, index: 5, topPills: null },
-  info_6: { title: 'GPU', footer: 'Info 6 • GPU', count: 8, index: 6, topPills: null },
-  info_7: { title: 'UPTIME', footer: 'Info 7 • Uptime', count: 8, index: 7, topPills: null },
-  info_8: { title: 'HOST NAME', footer: 'Info 8 • Host Name', count: 8, index: 8, topPills: null },
-  vms: { title: 'VMS', footer: 'VMS', count: 1, index: 1, topPills: 'vms' },
-};
-const ESP_PREVIEW_NAV = {
-  docker: { down: 'home' },
-  settings_1: { up: 'home', left: 'settings_2', right: 'settings_2' },
-  settings_2: { up: 'home', left: 'settings_1', right: 'settings_1' },
-  info_1: { up: 'home', left: 'info_2', right: 'info_8' },
-  info_2: { up: 'home', left: 'info_3', right: 'info_1' },
-  info_3: { up: 'home', left: 'info_4', right: 'info_2' },
-  info_4: { up: 'home', left: 'info_5', right: 'info_3' },
-  info_5: { up: 'home', left: 'info_6', right: 'info_4' },
-  info_6: { up: 'home', left: 'info_7', right: 'info_5' },
-  info_7: { up: 'home', left: 'info_8', right: 'info_6' },
-  info_8: { up: 'home', left: 'info_1', right: 'info_7' },
-  vms: { down: 'home' },
-};
 const ESP_PREVIEW_LONG_PRESS_MS = 420;
 const ESP_PREVIEW_SWIPE_THRESHOLD = 36;
 let espPreviewDockerItems = [];
@@ -57,70 +30,38 @@ const HIDE_METRIC_LOGS_KEY_LEGACY = 'host_metrics_hide_metric_logs_v1';
 const UI_SECTIONS_KEY = 'esp_host_bridge_ui_sections_v1';
 const UI_SECTIONS_KEY_LEGACY = 'host_metrics_ui_sections_v1';
 
-function getWorkloadMode(s) {
-  return (s && s.platform_mode === 'homeassistant') ? 'homeassistant' : 'host';
+function previewUiSnapshot(s) {
+  const preview = (s && s.preview_ui && typeof s.preview_ui === 'object') ? s.preview_ui : hostMetricsBoot.preview_ui;
+  return (preview && typeof preview === 'object') ? preview : {};
 }
-function getWorkloadLabels(mode) {
-  if (mode === 'homeassistant') {
-    return {
-      dockerTitle: 'Add-ons',
-      dockerPage: 'Add-ons',
-      dockerFooter: 'Add-ons',
-      dockerPreviewSub: 'On / Off / Issue',
-      dockerSummary: 'Started / Stopped / Issue',
-      dockerListHintEmpty: 'No Home Assistant add-ons in latest payload',
-      dockerListHintOne: 'Showing 1 add-on',
-      dockerListHintMany: (count) => `Showing ${count} add-ons`,
-      dockerListHintMore: (count, extra) => `Showing 5 of ${count} add-ons (+${extra} more)`,
-      dockerModalSub: 'Home Assistant app control',
-      vmTitle: 'Integrations',
-      vmPage: 'Integrations',
-      vmFooter: 'Integrations',
-      vmPreviewSub: 'Loaded integrations',
-      vmSummary: 'Loaded integrations',
-      vmListHintEmpty: 'No integrations in latest payload',
-      vmListHintOne: 'Showing 1 integration',
-      vmListHintMany: (count) => `Showing ${count} integrations`,
-      vmListHintMore: (count, extra) => `Showing 5 of ${count} integrations (+${extra} more)`,
-      vmModalSub: 'Loaded integration overview',
-      summaryLabel: 'Serial / HA',
-    };
-  }
-  return {
-    dockerTitle: 'Docker',
-    dockerPage: 'Docker',
-    dockerFooter: 'Docker',
-    dockerPreviewSub: 'Run / Stop / Unh',
-    dockerSummary: 'Run / Stop / Unhealthy',
-    dockerListHintEmpty: 'No Docker containers in latest payload',
-    dockerListHintOne: 'Showing 1 container',
-    dockerListHintMany: (count) => `Showing ${count} containers`,
-    dockerListHintMore: (count, extra) => `Showing 5 of ${count} containers (+${extra} more)`,
-    dockerModalSub: 'Container control',
-    vmTitle: 'VMs',
-    vmPage: 'VMS',
-    vmFooter: 'VMS',
-    vmPreviewSub: 'Run / Pause / Stop',
-    vmSummary: 'Run / Pause / Stop / Other',
-    vmListHintEmpty: 'No virtual machines in latest payload',
-    vmListHintOne: 'Showing 1 virtual machine',
-    vmListHintMany: (count) => `Showing ${count} virtual machines`,
-    vmListHintMore: (count, extra) => `Showing 5 of ${count} virtual machines (+${extra} more)`,
-    vmModalSub: 'Virtual machine control',
-    summaryLabel: 'Serial / Workloads',
-  };
+function previewUiMode(s) {
+  return previewUiSnapshot(s).mode === 'homeassistant' ? 'homeassistant' : 'host';
 }
-function getWorkloadIcons(mode) {
-  if (mode === 'homeassistant') {
-    return {
-      docker: 'mdi-puzzle-outline',
-      vm: 'mdi-devices',
-    };
-  }
-  return {
-    docker: 'mdi-docker',
-    vm: 'mdi-monitor-multiple',
-  };
+function previewPageOrder(s) {
+  const rows = previewUiSnapshot(s).page_order;
+  return Array.isArray(rows) && rows.length ? rows : ['home'];
+}
+function previewPageMeta(s, page) {
+  const pages = previewUiSnapshot(s).pages;
+  const map = (pages && typeof pages === 'object') ? pages : {};
+  const meta = map && map[page];
+  if (meta && typeof meta === 'object') return meta;
+  const home = map && map.home;
+  return (home && typeof home === 'object') ? home : { page_id: 'home', dom_id: 'espPageHome', title: 'HOME', footer: 'HOME', nav: {} };
+}
+function previewTabs(s) {
+  const rows = previewUiSnapshot(s).tabs;
+  return Array.isArray(rows) ? rows : [];
+}
+function previewHomeButtons(s) {
+  const rows = previewUiSnapshot(s).home_buttons;
+  return Array.isArray(rows) ? rows : [];
+}
+function previewModalMeta(s, target) {
+  const modals = previewUiSnapshot(s).modals;
+  const map = (modals && typeof modals === 'object') ? modals : {};
+  const meta = map && map[target];
+  return (meta && typeof meta === 'object') ? meta : {};
 }
 function setMetricCardHeading(valueId, iconClass, labelText) {
   const valueEl = document.getElementById(valueId);
@@ -134,58 +75,47 @@ function setCardHeading(valueId, labelText) {
   if (!labelEl) return;
   labelEl.textContent = labelText;
 }
-function refreshWorkloadLabels(mode) {
-  currentWorkloadMode = mode === 'homeassistant' ? 'homeassistant' : 'host';
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const icons = getWorkloadIcons(currentWorkloadMode);
-  setMetricCardHeading('mDOCKER', icons.docker, labels.dockerTitle);
-  setMetricCardHeading('mVMS', icons.vm, labels.vmTitle);
-  const dockerSub = document.getElementById('mDOCKER') && document.getElementById('mDOCKER').nextElementSibling;
-  const vmSub = document.getElementById('mVMS') && document.getElementById('mVMS').nextElementSibling;
-  if (dockerSub) dockerSub.textContent = labels.dockerPreviewSub;
-  if (vmSub) vmSub.textContent = labels.vmPreviewSub;
-  const summaryLabel = document.getElementById('sumDocker') && document.getElementById('sumDocker').parentElement && document.getElementById('sumDocker').parentElement.querySelector('.k');
-  if (summaryLabel) summaryLabel.textContent = labels.summaryLabel;
-  setCardHeading('mvDockerCounts', mode === 'homeassistant' ? 'Add-on Summary' : 'Docker Summary');
-  setCardHeading('mvVmCounts', mode === 'homeassistant' ? 'Integration Summary' : 'VM Summary');
-  const dockerTab = document.querySelector('[data-esp-page="docker"]');
-  const vmTab = document.querySelector('[data-esp-page="vms"]');
-  if (dockerTab) dockerTab.innerHTML = `<span class="mdi ${icons.docker}" aria-hidden="true"></span>${escapeHtml(labels.dockerPage)}`;
-  if (vmTab) vmTab.innerHTML = `<span class="mdi ${icons.vm}" aria-hidden="true"></span>${escapeHtml(labels.vmPage)}`;
-  const homeDocker = document.querySelector('[data-esp-nav="docker"]');
-  const homeVm = document.querySelector('[data-esp-nav="vms"]');
-  if (homeDocker) homeDocker.setAttribute('title', labels.dockerTitle);
-  if (homeVm) homeVm.setAttribute('title', labels.vmTitle);
-  const homeDockerIcon = homeDocker && homeDocker.querySelector('.mdi');
-  const homeVmIcon = homeVm && homeVm.querySelector('.mdi');
-  if (homeDockerIcon) homeDockerIcon.className = `mdi ${icons.docker}`;
-  if (homeVmIcon) homeVmIcon.className = `mdi ${icons.vm}`;
-  const dockerEmptyIcon = document.querySelector('#espDockerEmpty .mdi');
-  const vmEmptyIcon = document.querySelector('#espVmsEmpty .mdi');
-  if (dockerEmptyIcon) dockerEmptyIcon.className = `mdi ${icons.docker}`;
-  if (vmEmptyIcon) vmEmptyIcon.className = `mdi ${icons.vm}`;
-  const dockerModal = document.getElementById('espDockerModal');
-  const vmModal = document.getElementById('espVmsModal');
-  if (dockerModal) {
-    const icon = dockerModal.querySelector('.esp-preview-modal-heading .mdi');
-    const title = dockerModal.querySelector('.esp-preview-modal-title');
-    const subtitle = dockerModal.querySelector('.esp-preview-modal-subtitle');
-    if (icon) icon.className = `mdi ${icons.docker}`;
-    if (title) title.textContent = labels.dockerTitle;
-    if (subtitle) subtitle.textContent = labels.dockerModalSub;
+function renderPreviewUi(s) {
+  const preview = previewUiSnapshot(s);
+  const signature = JSON.stringify(preview);
+  if (signature === lastPreviewUiSignature) return;
+  lastPreviewUiSignature = signature;
+
+  const tabsBox = document.getElementById('espPreviewTabs');
+  if (tabsBox) {
+    tabsBox.innerHTML = previewTabs(s).map((tab) => {
+      const pageId = escapeHtml(String(tab && tab.page_id || 'home'));
+      const label = escapeHtml(String(tab && tab.label || pageId));
+      const iconClass = escapeHtml(String(tab && tab.icon_class || 'mdi-application-outline'));
+      return `<button class="secondary" type="button" data-esp-page="${pageId}"><span class="mdi ${iconClass}" aria-hidden="true"></span>${label}</button>`;
+    }).join('');
   }
-  if (vmModal) {
-    const icon = vmModal.querySelector('.esp-preview-modal-heading .mdi');
-    const title = vmModal.querySelector('.esp-preview-modal-title');
-    const subtitle = vmModal.querySelector('.esp-preview-modal-subtitle');
-    const footer = vmModal.querySelector('.esp-preview-modal-footer');
-    const footnote = vmModal.querySelector('.esp-preview-modal-footnote');
-    if (icon) icon.className = `mdi ${icons.vm}`;
-    if (title) title.textContent = labels.vmTitle;
-    if (subtitle) subtitle.textContent = labels.vmModalSub;
-    if (footer) footer.hidden = currentWorkloadMode === 'homeassistant';
-    if (footnote) footnote.hidden = currentWorkloadMode === 'homeassistant';
+
+  const homeButtonsBox = document.getElementById('espHomeNavButtons');
+  if (homeButtonsBox) {
+    homeButtonsBox.innerHTML = previewHomeButtons(s).map((button) => {
+      const target = escapeHtml(String(button && button.target_page || 'home'));
+      const position = escapeHtml(String(button && button.position || ''));
+      const title = escapeHtml(String(button && button.title || target));
+      const iconClass = escapeHtml(String(button && button.icon_class || 'mdi-circle-outline'));
+      return `<div class="esp-home-btn ${position}" data-esp-nav="${target}" title="${title}"><span class="mdi ${iconClass}"></span></div>`;
+    }).join('');
   }
+
+  ['docker', 'vms'].forEach((target) => {
+    const meta = previewModalMeta(s, target);
+    const modal = document.getElementById(target === 'docker' ? 'espDockerModal' : 'espVmsModal');
+    if (!modal) return;
+    const icon = modal.querySelector('.esp-preview-modal-heading .mdi');
+    const title = modal.querySelector('.esp-preview-modal-title');
+    const subtitle = modal.querySelector('.esp-preview-modal-subtitle');
+    if (icon) icon.className = `mdi ${String(meta && meta.icon_class || 'mdi-puzzle-outline')}`;
+    if (title) title.textContent = String(meta && meta.title || target.toUpperCase());
+    if (subtitle) subtitle.textContent = String(meta && meta.subtitle || '');
+  });
+
+  renderPreviewActionGroups(s);
+  setEspPreviewPage(currentEspPreviewPage);
 }
 function workloadMetricFlag(metrics, key) {
   if (!metrics || !Object.prototype.hasOwnProperty.call(metrics, key)) return null;
@@ -206,7 +136,8 @@ async function pollStatus() {
     if (startedEl) startedEl.textContent = started;
     if (exitEl) exitEl.textContent = s.last_exit ?? '--';
     lastStatusPayload = s;
-    refreshWorkloadLabels(getWorkloadMode(s));
+    renderPreviewUi(s);
+    renderPreviewCards(s);
     updateTelemetryHealth(s);
     updateSerialHealth(s);
     updateHostNameStatus(s);
@@ -403,38 +334,110 @@ function metricText(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
 }
-function updateMetricPreview(metrics) {
-  const m = (metrics && typeof metrics === 'object') ? metrics : {};
-  const keys = Object.keys(m);
-  const hasAny = keys.length > 0;
-  const has = (k) => Object.prototype.hasOwnProperty.call(m, k) && m[k] !== '' && m[k] !== null && m[k] !== undefined;
-  if (!hasAny) {
-    metricText('mCPU', 'Waiting...');
-    metricText('mMEM', 'Waiting...');
-    metricText('mTEMP', 'Waiting...');
-    metricText('mNET', 'Waiting...');
-    metricText('mDISK', 'Waiting...');
-    metricText('mDOCKER', 'Waiting...');
-    metricText('mVMS', 'Waiting...');
+function previewCards(s) {
+  return Array.isArray(s && s.preview_cards) ? s.preview_cards : [];
+}
+function previewActionGroups(s) {
+  return Array.isArray(s && s.preview_action_groups) ? s.preview_action_groups : [];
+}
+function previewActionGroup(s, target) {
+  const needle = String(target || '').trim().toLowerCase();
+  return previewActionGroups(s).find((row) => String(row && row.target || '').trim().toLowerCase() === needle) || null;
+}
+function summaryBarChips(s) {
+  return Array.isArray(s && s.summary_bar) ? s.summary_bar : [];
+}
+function renderPreviewCards(s) {
+  const box = document.getElementById('metricsPreview');
+  if (!box) return;
+  const cards = previewCards(s);
+  const signature = JSON.stringify(cards);
+  if (signature === lastPreviewCardSignature) return;
+  lastPreviewCardSignature = signature;
+  if (!cards.length) {
+    box.innerHTML = '<div class="metric-card"><div class="metric-label">Telemetry</div><div class="metric-value">Waiting...</div><div class="metric-sub">No preview metadata</div></div>';
     return;
   }
-  metricText('mCPU', has('CPU') ? `${m.CPU}%` : 'Waiting...');
-  metricText('mMEM', has('MEM') ? `${m.MEM}%` : 'Waiting...');
-  metricText('mTEMP', has('TEMP') ? `${m.TEMP}°C` : 'Waiting...');
-  const rx = has('RX') ? `${m.RX}` : '...';
-  const tx = has('TX') ? `${m.TX}` : '...';
-  metricText('mNET', `${rx} / ${tx}`);
-  const dtemp = has('DISK') ? `${m.DISK}°C` : '...';
-  const dpct = has('DISKPCT') ? `${m.DISKPCT}%` : '...';
-  metricText('mDISK', `${dtemp} / ${dpct}`);
-  const dr = has('DOCKRUN') ? m.DOCKRUN : '...';
-  const ds = has('DOCKSTOP') ? m.DOCKSTOP : '...';
-  const du = has('DOCKUNH') ? m.DOCKUNH : '...';
-  metricText('mDOCKER', `${dr} / ${ds} / ${du}`);
-  const vr = has('VMSRUN') ? m.VMSRUN : '...';
-  const vp = has('VMSPAUSE') ? m.VMSPAUSE : '...';
-  const vs = has('VMSSTOP') ? m.VMSSTOP : '...';
-  metricText('mVMS', `${vr} / ${vp} / ${vs}`);
+  box.innerHTML = cards.map((card) => `<div class="metric-card">
+    <div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi ${escapeHtml(String(card && card.icon_class || 'mdi-chart-box-outline'))}"></span></span>${escapeHtml(String(card && card.label || card.card_id || 'Metric'))}</div>
+    <div class="metric-value" id="m${escapeHtml(String(card && card.card_id || 'Metric'))}">Waiting...</div>
+    <div class="metric-sub">${escapeHtml(String(card && card.subtext || ''))}</div>
+  </div>`).join('');
+}
+function previewCardText(card, metrics, workloadMode) {
+  const key = String(card && card.metric_key || '').trim();
+  const secondaryKey = String(card && card.secondary_metric_key || '').trim();
+  const has = (k) => !!k && Object.prototype.hasOwnProperty.call(metrics, k) && metrics[k] !== '' && metrics[k] !== null && metrics[k] !== undefined;
+  switch (String(card && card.render_kind || '')) {
+    case 'percent_metric':
+      return has(key) ? `${metrics[key]}%` : 'Waiting...';
+    case 'temp_metric':
+      return has(key) ? `${metrics[key]}°C` : 'Waiting...';
+    case 'pair_metric': {
+      const left = has(key) ? `${metrics[key]}` : '...';
+      const right = has(secondaryKey) ? `${metrics[secondaryKey]}` : '...';
+      return `${left} / ${right}`;
+    }
+    case 'disk_temp_usage': {
+      const left = has(key) ? `${metrics[key]}°C` : '...';
+      const right = has(secondaryKey) ? `${metrics[secondaryKey]}%` : '...';
+      return `${left} / ${right}`;
+    }
+    case 'docker_preview_counts': {
+      const dr = has('DOCKRUN') ? metrics.DOCKRUN : '...';
+      const ds = has('DOCKSTOP') ? metrics.DOCKSTOP : '...';
+      const du = has('DOCKUNH') ? metrics.DOCKUNH : '...';
+      return `${dr} / ${ds} / ${du}`;
+    }
+    case 'vm_preview_counts': {
+      const vr = has('VMSRUN') ? metrics.VMSRUN : '...';
+      if (workloadMode === 'homeassistant') return `${vr}`;
+      const vp = has('VMSPAUSE') ? metrics.VMSPAUSE : '...';
+      const vs = has('VMSSTOP') ? metrics.VMSSTOP : '...';
+      return `${vr} / ${vp} / ${vs}`;
+    }
+    default:
+      return has(key) ? String(metrics[key]) : 'Waiting...';
+  }
+}
+function updateSummaryBarFromMetadata(s, workloadMode) {
+  const metrics = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  const overview = (s && s.integration_overview && typeof s.integration_overview === 'object') ? s.integration_overview : {};
+  summaryBarChips(s).forEach((chip) => {
+    const id = `sum${String(chip && chip.chip_id || '').trim()}`;
+    switch (String(chip && chip.render_kind || '')) {
+      case 'agent_running':
+        metricText(id, s.running ? 'Running' : 'Stopped');
+        break;
+      case 'workload_summary':
+        if (workloadMode === 'homeassistant') metricText(id, 'A ' + String(metrics.DOCKRUN ?? '--') + '/' + String(metrics.DOCKSTOP ?? '--') + ' • I ' + String(metrics.VMSRUN ?? '--'));
+        else metricText(id, 'D ' + String(metrics.DOCKRUN ?? '--') + '/' + String(metrics.DOCKSTOP ?? '--') + ' • VM ' + String(metrics.VMSRUN ?? '--') + '/' + String(metrics.VMSPAUSE ?? '--') + '/' + String(metrics.VMSSTOP ?? '--'));
+        break;
+      case 'metrics_age':
+        metricText(id, fmtAgeSec(s.last_metrics_age_s));
+        break;
+      case 'integration_ready': {
+        metricText(id, String(overview.ready_text || '--'));
+        break;
+      }
+      case 'metric_text': {
+        const metricKey = String(chip && chip.metric_key || '').trim();
+        metricText(id, metricKey && Object.prototype.hasOwnProperty.call(metrics, metricKey) ? String(metrics[metricKey]) : String(chip && chip.fallback_text || '--'));
+        break;
+      }
+      default:
+        metricText(id, String(chip && chip.fallback_text || '--'));
+        break;
+    }
+  });
+}
+function updateMetricPreview(metrics) {
+  const m = (metrics && typeof metrics === 'object') ? metrics : {};
+  const cards = previewCards(lastStatusPayload || {});
+  if (!cards.length) return;
+  cards.forEach((card) => {
+    metricText(`m${String(card && card.card_id || '').trim()}`, previewCardText(card, m, previewUiMode(lastStatusPayload)));
+  });
 }
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
@@ -447,7 +450,7 @@ function fmtEspUptime(v) {
   const m = Math.floor((n % 3600) / 60);
   return `${d}d ${h}h ${m}m`;
 }
-function fmtEspMbps(kbps) {
+function fmtEspMBps(kbps) {
   const n = Number(kbps);
   if (!Number.isFinite(n)) return '--';
   const MBps = n / 8000;
@@ -582,18 +585,15 @@ function countVmPreviewItems(items) {
 function buildEspHeadPillHtml(kind, label, value) {
   return `<div class="esp-head-pill ${kind}"><span class="k">${escapeHtml(label)}</span><span class="n">${escapeHtml(value)}</span></div>`;
 }
-function getEspPreviewMeta(page) {
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  if (page === 'docker') return { title: labels.dockerTitle, footer: labels.dockerFooter, count: 1, index: 1, topPills: 'docker' };
-  if (page === 'vms') return { title: labels.vmPage.toUpperCase(), footer: labels.vmFooter, count: 1, index: 1, topPills: 'vms' };
-  return ESP_PREVIEW_META[page] || ESP_PREVIEW_META.home;
+function getEspPreviewMeta(page, s) {
+  return previewPageMeta(s || lastStatusPayload, page);
 }
 function renderEspPageIndicator() {
   const el = document.getElementById('espPageIndicator');
   if (!el) return;
-  const meta = getEspPreviewMeta(currentEspPreviewPage);
-  const count = Number(meta.count || 0);
-  const index = Number(meta.index || 0);
+  const meta = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload);
+  const count = Number(meta.indicator_count || 0);
+  const index = Number(meta.indicator_index || 0);
   if (!count) {
     el.innerHTML = '';
     return;
@@ -608,11 +608,11 @@ function renderEspTopPills() {
   el.innerHTML = '';
 }
 function refreshEspPreviewChrome() {
-  const meta = getEspPreviewMeta(currentEspPreviewPage);
+  const meta = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload);
   const title = document.getElementById('espTopTitle');
   const footer = document.getElementById('espFooterPage');
-  if (title) title.textContent = meta.title;
-  if (footer) footer.textContent = `Preview • ${meta.footer}`;
+  if (title) title.textContent = String(meta.title || 'HOME');
+  if (footer) footer.textContent = `Preview • ${String(meta.footer || 'HOME')}`;
   renderEspPageIndicator();
   renderEspTopPills();
 }
@@ -625,18 +625,71 @@ function closeEspPreviewModal() {
   if (screen) screen.classList.remove('modal-open');
   espPreviewActiveModal = null;
 }
+function renderPreviewActionGroups(s) {
+  ['docker', 'vms'].forEach((target) => {
+    const group = previewActionGroup(s, target);
+    const footer = document.getElementById(target === 'docker' ? 'espDockerModalActions' : 'espVmsModalActions');
+    const footnote = document.getElementById(target === 'docker' ? 'espDockerModalFootnote' : 'espVmsModalFootnote');
+    const actions = Array.isArray(group && group.actions) ? group.actions : [];
+    if (footer) {
+      footer.hidden = actions.length === 0;
+      footer.innerHTML = actions.map((action) => {
+        const cls = escapeHtml(String(action && action.button_class || 'secondary'));
+        const label = escapeHtml(String(action && action.label || action && action.command_id || '--'));
+        const commandId = escapeHtml(String(action && action.command_id || ''));
+        return `<button class="esp-modal-action ${cls}" type="button" data-esp-preview-command="${commandId}">${label}</button>`;
+      }).join('');
+    }
+    if (footnote) {
+      const text = String(group && group.footnote || '');
+      footnote.hidden = !text;
+      footnote.textContent = text;
+    }
+  });
+}
+function applyPreviewCommandOverride(type, name, action) {
+  const patch = (action && typeof action.optimistic_patch === 'object' && action.optimistic_patch) ? action.optimistic_patch : {};
+  if (type === 'docker') {
+    espPreviewDockerOverrides[name] = { ...(espPreviewDockerOverrides[name] || {}), ...patch };
+    return;
+  }
+  if (type === 'vms') {
+    espPreviewVmOverrides[name] = { ...(espPreviewVmOverrides[name] || {}), ...patch };
+  }
+}
 function refreshEspPreviewActiveModal() {
   if (!espPreviewActiveModal) return;
   if (espPreviewActiveModal.type === 'docker') {
     const item = espPreviewDockerItems.find((row) => row && row.name === espPreviewActiveModal.name);
     if (!item) return;
     metricText('espDockerModalName', item.name);
+    const status = document.getElementById('espDockerModalStatus');
+    const detail = document.getElementById('espDockerModalDetail');
+    if (status) {
+      const stateKey = dockerStateKeyFromRaw(item.state);
+      status.className = `esp-state-pill ${stateKey}`;
+      status.textContent = dockerStateLabelFromRaw(item.state);
+    }
+    if (detail) detail.textContent = `Latest state: ${dockerStateLabelFromRaw(item.state)}`;
     return;
   }
   if (espPreviewActiveModal.type === 'vms') {
     const item = espPreviewVmItems.find((row) => row && row.name === espPreviewActiveModal.name);
     if (!item) return;
     metricText('espVmsModalName', item.name);
+    const status = document.getElementById('espVmsModalStatus');
+    const detail = document.getElementById('espVmsModalDetail');
+    if (status) {
+      status.className = `esp-state-pill ${escapeHtml(String(item.stateKey || 'other'))}`;
+      status.textContent = String(item.stateLabel || 'Unknown');
+    }
+    if (detail) {
+      const vcpus = Number(item.vcpus || 0);
+      const memMiB = Number(item.memMiB || 0);
+      detail.textContent = (vcpus || memMiB)
+        ? `${item.stateLabel || 'Unknown'} • ${vcpus || 0} vCPU • ${memMiB || 0} MiB`
+        : `Latest state: ${item.stateLabel || 'Unknown'}`;
+    }
   }
 }
 function openEspPreviewModal(type, index) {
@@ -653,48 +706,47 @@ function openEspPreviewModal(type, index) {
 }
 function navigateEspPreview(direction) {
   if (espPreviewActiveModal) return;
-  const next = ESP_PREVIEW_NAV[currentEspPreviewPage] && ESP_PREVIEW_NAV[currentEspPreviewPage][direction];
+  const nav = getEspPreviewMeta(currentEspPreviewPage, lastStatusPayload).nav || {};
+  const next = nav && nav[direction];
   if (next) setEspPreviewPage(next);
 }
 function setEspPreviewPage(page) {
-  const next = ESP_PREVIEW_PAGE_ORDER.includes(page) ? page : 'home';
+  const order = previewPageOrder(lastStatusPayload);
+  const next = order.includes(page) ? page : 'home';
   currentEspPreviewPage = next;
   document.querySelectorAll('[data-esp-page]').forEach((btn)=> {
     btn.classList.toggle('active', btn.getAttribute('data-esp-page') === next);
   });
   const screen = document.getElementById('espPreviewScreen');
   if (screen) screen.classList.toggle('home-mode', next === 'home');
-  const pages = {
-    home: document.getElementById('espPageHome'),
-    docker: document.getElementById('espPageDocker'),
-    settings_1: document.getElementById('espPageSettings1'),
-    settings_2: document.getElementById('espPageSettings2'),
-    info_1: document.getElementById('espPageInfo1'),
-    info_2: document.getElementById('espPageInfo2'),
-    info_3: document.getElementById('espPageInfo3'),
-    info_4: document.getElementById('espPageInfo4'),
-    info_5: document.getElementById('espPageInfo5'),
-    info_6: document.getElementById('espPageInfo6'),
-    info_7: document.getElementById('espPageInfo7'),
-    info_8: document.getElementById('espPageInfo8'),
-    vms: document.getElementById('espPageVms'),
-  };
-  Object.entries(pages).forEach(([k, el]) => { if (el) el.classList.toggle('active', k === next); });
+  previewPageOrder(lastStatusPayload).forEach((pageId) => {
+    const meta = getEspPreviewMeta(pageId, lastStatusPayload);
+    const el = document.getElementById(String(meta.dom_id || ''));
+    if (el) el.classList.toggle('active', pageId === next);
+  });
   closeEspPreviewModal();
   refreshEspPreviewChrome();
   try { localStorage.setItem(ESP_PREVIEW_PAGE_KEY, next); } catch (_) {}
 }
 function initEspPreview() {
-  document.querySelectorAll('[data-esp-page]').forEach((btn)=> {
-    btn.addEventListener('click', () => setEspPreviewPage(btn.getAttribute('data-esp-page') || 'home'));
-  });
-  document.querySelectorAll('[data-esp-nav]').forEach((el)=> {
-    el.addEventListener('click', (ev) => {
+  const tabsBox = document.getElementById('espPreviewTabs');
+  if (tabsBox) {
+    tabsBox.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-esp-page]');
+      if (!btn) return;
+      setEspPreviewPage(btn.getAttribute('data-esp-page') || 'home');
+    });
+  }
+  const homeButtonsBox = document.getElementById('espHomeNavButtons');
+  if (homeButtonsBox) {
+    homeButtonsBox.addEventListener('click', (ev) => {
+      const el = ev.target.closest('[data-esp-nav]');
+      if (!el) return;
       ev.preventDefault();
       ev.stopPropagation();
       setEspPreviewPage(el.getAttribute('data-esp-nav') || 'home');
     });
-  });
+  }
   const screen = document.getElementById('espPreviewScreen');
   const top = document.getElementById('espPreviewTop');
   if (top) {
@@ -807,24 +859,21 @@ function initEspPreview() {
         closeEspPreviewModal();
         return;
       }
-      const dockerAction = ev.target.closest('[data-esp-docker-action]');
-      if (dockerAction && espPreviewActiveModal && espPreviewActiveModal.type === 'docker') {
-        const action = dockerAction.getAttribute('data-esp-docker-action');
-        espPreviewDockerOverrides[espPreviewActiveModal.name] = { state: action === 'start' ? 'running' : 'stopped' };
+      const previewAction = ev.target.closest('[data-esp-preview-command]');
+      if (previewAction && espPreviewActiveModal) {
+        const commandId = String(previewAction.getAttribute('data-esp-preview-command') || '').trim();
+        const group = previewActionGroup(lastStatusPayload || {}, espPreviewActiveModal.type);
+        const action = Array.isArray(group && group.actions)
+          ? group.actions.find((row) => String(row && row.command_id || '').trim() === commandId)
+          : null;
+        if (!action) return;
+        if (action.destructive && action.confirmation_text) {
+          if (!window.confirm(String(action.confirmation_text))) return;
+        }
+        applyPreviewCommandOverride(espPreviewActiveModal.type, espPreviewActiveModal.name, action);
         closeEspPreviewModal();
         if (lastStatusPayload) updateEspPreview(lastStatusPayload);
         return;
-      }
-      const vmAction = ev.target.closest('[data-esp-vms-action]');
-      if (vmAction && espPreviewActiveModal && espPreviewActiveModal.type === 'vms') {
-        const action = vmAction.getAttribute('data-esp-vms-action');
-        if (action === 'start' || action === 'restart') {
-          espPreviewVmOverrides[espPreviewActiveModal.name] = { stateKey: 'running', stateLabel: 'Running' };
-        } else {
-          espPreviewVmOverrides[espPreviewActiveModal.name] = { stateKey: 'stopped', stateLabel: 'Stopped' };
-        }
-        closeEspPreviewModal();
-        if (lastStatusPayload) updateEspPreview(lastStatusPayload);
       }
     });
   }
@@ -934,6 +983,8 @@ function renderEspDockerRows(items, stateMode) {
   const list = document.getElementById('espDockerRows');
   const empty = document.getElementById('espDockerEmpty');
   if (!list || !empty) return;
+  const mode = previewUiMode(lastStatusPayload);
+  const pageMeta = getEspPreviewMeta('docker', lastStatusPayload);
   const rows = (Array.isArray(items) ? items : []).slice(0, 10);
   if (!rows.length) {
     list.innerHTML = '';
@@ -941,24 +992,24 @@ function renderEspDockerRows(items, stateMode) {
     const subtitle = empty.querySelector('.esp-workload-empty-subtitle');
     const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
     const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HADOCKAPI');
-    if (currentWorkloadMode === 'homeassistant' && token === 0) {
-      if (title) title.textContent = 'Token Missing';
-      if (subtitle) subtitle.textContent = 'Supervisor token is not available to the app';
-    } else if (currentWorkloadMode === 'homeassistant' && api === 0) {
-      if (title) title.textContent = 'Add-on API Error';
-      if (subtitle) subtitle.textContent = 'Check app logs for Supervisor API errors';
+    if (mode === 'homeassistant' && token === 0) {
+      if (title) title.textContent = String(pageMeta.token_missing_title || 'Token Missing');
+      if (subtitle) subtitle.textContent = String(pageMeta.token_missing_subtitle || 'Supervisor token is not available to the app');
+    } else if (mode === 'homeassistant' && api === 0) {
+      if (title) title.textContent = String(pageMeta.api_error_title || 'Add-on API Error');
+      if (subtitle) subtitle.textContent = String(pageMeta.api_error_subtitle || 'Check app logs for Supervisor API errors');
     } else {
-      if (title) title.textContent = currentWorkloadMode === 'homeassistant' ? 'No Add-ons' : 'No Docker Data';
-      if (subtitle) subtitle.textContent = currentWorkloadMode === 'homeassistant' ? 'No add-ons in the latest payload' : 'No containers in the latest payload';
+      if (title) title.textContent = String(pageMeta.empty_title || 'No Docker Data');
+      if (subtitle) subtitle.textContent = String(pageMeta.empty_subtitle || 'No containers in the latest payload');
     }
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
+  const iconClass = String(pageMeta.home_button_icon_class || pageMeta.tab_icon_class || 'mdi-docker');
   list.innerHTML = rows.map((item, index) => {
-    const icons = getWorkloadIcons(currentWorkloadMode);
     return `<button class="esp-workload-row" type="button" data-esp-modal-row="docker" data-esp-index="${index}">
-      <span class="mdi ${icons.docker}" aria-hidden="true"></span>
+      <span class="mdi ${escapeHtml(iconClass)}" aria-hidden="true"></span>
       <span class="esp-workload-row-name">${escapeHtml(item.name)}</span>
     </button>`;
   }).join('');
@@ -967,6 +1018,8 @@ function renderEspVmRows(items, stateMode) {
   const list = document.getElementById('espVmsRows');
   const empty = document.getElementById('espVmsEmpty');
   if (!list || !empty) return;
+  const mode = previewUiMode(lastStatusPayload);
+  const pageMeta = getEspPreviewMeta('vms', lastStatusPayload);
   const rows = (Array.isArray(items) ? items : []).slice(0, 10);
   if (!rows.length) {
     list.innerHTML = '';
@@ -974,59 +1027,52 @@ function renderEspVmRows(items, stateMode) {
     const subtitle = empty.querySelector('.esp-workload-empty-subtitle');
     const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
     const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HAVMSAPI');
-    if (currentWorkloadMode === 'homeassistant' && token === 0) {
-      if (title) title.textContent = 'Token Missing';
-      if (subtitle) subtitle.textContent = 'Supervisor token is not available to the app';
-    } else if (currentWorkloadMode === 'homeassistant' && api === 0) {
-      if (title) title.textContent = 'Integration API Error';
-      if (subtitle) subtitle.textContent = 'Check app logs for Core WebSocket errors';
+    if (mode === 'homeassistant' && token === 0) {
+      if (title) title.textContent = String(pageMeta.token_missing_title || 'Token Missing');
+      if (subtitle) subtitle.textContent = String(pageMeta.token_missing_subtitle || 'Supervisor token is not available to the app');
+    } else if (mode === 'homeassistant' && api === 0) {
+      if (title) title.textContent = String(pageMeta.api_error_title || 'Integration API Error');
+      if (subtitle) subtitle.textContent = String(pageMeta.api_error_subtitle || 'Check app logs for Core WebSocket errors');
     } else {
-      if (title) title.textContent = currentWorkloadMode === 'homeassistant' ? 'No Integrations' : 'No VM Data';
-      if (subtitle) subtitle.textContent = currentWorkloadMode === 'homeassistant' ? 'No integrations in the latest payload' : 'No virtual machines in the latest payload';
+      if (title) title.textContent = String(pageMeta.empty_title || 'No VM Data');
+      if (subtitle) subtitle.textContent = String(pageMeta.empty_subtitle || 'No virtual machines in the latest payload');
     }
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
-  const icons = getWorkloadIcons(currentWorkloadMode);
+  const iconClass = String(pageMeta.home_button_icon_class || pageMeta.tab_icon_class || 'mdi-monitor-multiple');
   list.innerHTML = rows.map((item, index) => `<button class="esp-workload-row" type="button" data-esp-modal-row="vms" data-esp-index="${index}">
-      <span class="mdi ${icons.vm}" aria-hidden="true"></span>
+      <span class="mdi ${escapeHtml(iconClass)}" aria-hidden="true"></span>
       <span class="esp-workload-row-name">${escapeHtml(item.name)}</span>
     </button>`).join('');
 }
-function renderDockerLists(items) {
-  const prev = document.getElementById('dockerPreviewList'); const all = document.getElementById('dockerAllList'); const hint = document.getElementById('dockerMoreHint');
-  if (!prev || !all || !hint) return;
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + (it.state === 'up' ? 'up' : 'down') + '">' + it.state + '</span></li>';
-  prev.innerHTML = items.slice(0,5).map(rowHtml).join('');
-  all.innerHTML = items.map(rowHtml).join('');
-  const extra = Math.max(0, items.length - 5);
-  const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
-  const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HADOCKAPI');
-  if (!items.length && currentWorkloadMode === 'homeassistant' && token === 0) hint.textContent = 'Supervisor token missing in app container';
-  else if (!items.length && currentWorkloadMode === 'homeassistant' && api === 0) hint.textContent = 'Add-on API unavailable; check logs';
-  else if (!items.length) hint.textContent = labels.dockerListHintEmpty;
-  else if (extra) hint.textContent = labels.dockerListHintMore(items.length, extra);
-  else if (items.length === 1) hint.textContent = labels.dockerListHintOne;
-  else hint.textContent = labels.dockerListHintMany(items.length);
+function monitorDetailPayloads(s) {
+  return (s && s.monitor_detail_payloads && typeof s.monitor_detail_payloads === 'object') ? s.monitor_detail_payloads : {};
 }
-function renderVmLists(items) {
-  const prev = document.getElementById('vmPreviewList'); const all = document.getElementById('vmAllList'); const hint = document.getElementById('vmMoreHint');
+function renderStatusListDetail(payload, detailId) {
+  const prev = document.getElementById(`${detailId}PreviewList`);
+  const all = document.getElementById(`${detailId}AllList`);
+  const hint = document.getElementById(`${detailId}MoreHint`);
   if (!prev || !all || !hint) return;
-  const labels = getWorkloadLabels(currentWorkloadMode);
-  const rowHtml = (it)=>'<li><span>' + it.name + '</span><span class="docker-pill ' + it.stateKey + '">' + it.stateLabel + '</span></li>';
-  prev.innerHTML = items.slice(0,5).map(rowHtml).join('');
+  const items = Array.isArray(payload && payload.items) ? payload.items : [];
+  const rowHtml = (it) => {
+    const name = escapeHtml(String(it && it.name || '--'));
+    const stateText = escapeHtml(String(it && it.state_text || '--'));
+    const stateClass = escapeHtml(String(it && it.state_class || 'other'));
+    return `<li><span>${name}</span><span class="docker-pill ${stateClass}">${stateText}</span></li>`;
+  };
+  prev.innerHTML = items.slice(0, 5).map(rowHtml).join('');
   all.innerHTML = items.map(rowHtml).join('');
-  const extra = Math.max(0, items.length - 5);
-  const token = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HATOKEN');
-  const api = workloadMetricFlag(lastStatusPayload && lastStatusPayload.last_metrics, 'HAVMSAPI');
-  if (!items.length && currentWorkloadMode === 'homeassistant' && token === 0) hint.textContent = 'Supervisor token missing in app container';
-  else if (!items.length && currentWorkloadMode === 'homeassistant' && api === 0) hint.textContent = 'Integration registry unavailable; check logs';
-  else if (!items.length) hint.textContent = labels.vmListHintEmpty;
-  else if (extra) hint.textContent = labels.vmListHintMore(items.length, extra);
-  else if (items.length === 1) hint.textContent = labels.vmListHintOne;
-  else hint.textContent = labels.vmListHintMany(items.length);
+  hint.textContent = String(payload && payload.hint || 'Waiting for data...');
+}
+function updateMonitorDetailsFromMetadata(s) {
+  const payloads = monitorDetailPayloads(s);
+  monitorDetailSections(s).forEach((detail) => {
+    const detailId = String(detail && detail.detail_id || '').trim();
+    if (!detailId) return;
+    renderStatusListDetail(payloads[detailId] || null, detailId);
+  });
 }
 function setMonitorMode(mode) {
   currentViewMode = (mode === 'monitor') ? 'monitor' : 'setup';
@@ -1044,54 +1090,349 @@ function initViewMode() {
     else setMonitorMode('setup');
   } catch (_) { setMonitorMode('setup'); }
 }
+function integrationLabel(id) {
+  const key = String(id || '').trim().toLowerCase();
+  const meta = integrationDashboardMeta(lastStatusPayload, key);
+  if (meta && meta.label) return String(meta.label);
+  if (key === 'host_power') return 'Host Power';
+  return key ? key.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : 'Integration';
+}
+function integrationDashboardRows(s) {
+  return Array.isArray(s && s.integration_dashboard) ? s.integration_dashboard : [];
+}
+function monitorDashboardGroups(s) {
+  return Array.isArray(s && s.monitor_dashboard) ? s.monitor_dashboard : [];
+}
+function monitorDetailSections(s) {
+  return Array.isArray(s && s.monitor_details) ? s.monitor_details : [];
+}
+function integrationDashboardMeta(s, id) {
+  const target = String(id || '').trim().toLowerCase();
+  if (!target) return null;
+  return integrationDashboardRows(s).find((row) => String(row && row.integration_id || '').trim().toLowerCase() === target) || null;
+}
+function monitorDashboardCardHtml(card) {
+  const cardId = String(card && card.card_id || '').trim();
+  if (!cardId) return '';
+  const label = escapeHtml(String(card && card.label || cardId));
+  const subtext = escapeHtml(String(card && card.subtext || ''));
+  const sparkKeys = Array.isArray(card && card.spark_keys) ? card.spark_keys : [];
+  const sparkSvg = sparkKeys.length ? `<svg id="spark${escapeHtml(cardId)}"></svg>` : '';
+  return `<div class="mcard" id="mc${escapeHtml(cardId)}">
+    <div class="metric-label">${label}</div>
+    <div class="metric-value" id="mv${escapeHtml(cardId)}">--</div>
+    <div class="metric-sub" id="ms${escapeHtml(cardId)}">${subtext}</div>
+    ${sparkSvg}
+  </div>`;
+}
+function renderMonitorDashboardSections(s) {
+  const box = document.getElementById('monitorDashboardSections');
+  if (!box) return;
+  const groups = monitorDashboardGroups(s);
+  const signature = JSON.stringify(groups);
+  if (signature === lastMonitorDashboardSignature) return;
+  lastMonitorDashboardSignature = signature;
+  if (!groups.length) {
+    box.innerHTML = '<div class="monitor-note">Waiting for monitor dashboard metadata...</div>';
+    return;
+  }
+  box.innerHTML = groups.map((group) => {
+    const title = escapeHtml(String(group && group.title || 'Metrics'));
+    const iconClass = escapeHtml(String(group && group.icon_class || 'mdi-view-dashboard-outline'));
+    const spanClass = escapeHtml(String(group && group.span_class || 'span6'));
+    const cards = Array.isArray(group && group.cards) ? group.cards : [];
+    return `<section class="mgroup ${spanClass}">
+      <h3><span class="gicon" aria-hidden="true"><span class="mdi ${iconClass}"></span></span>${title}</h3>
+      <div class="mgroup-grid">${cards.map(monitorDashboardCardHtml).join('')}</div>
+    </section>`;
+  }).join('');
+}
+function renderMonitorDetailSections(s) {
+  const box = document.getElementById('monitorDetailSections');
+  if (!box) return;
+  const details = monitorDetailSections(s);
+  const signature = JSON.stringify(details);
+  if (signature === lastMonitorDetailSignature) return;
+  lastMonitorDetailSignature = signature;
+  if (!details.length) {
+    box.innerHTML = '<div class="monitor-note">Waiting for workload detail metadata...</div>';
+    return;
+  }
+  box.innerHTML = details.map((detail) => {
+    const detailId = escapeHtml(String(detail && detail.detail_id || 'detail'));
+    const title = escapeHtml(String(detail && detail.title || 'Details'));
+    const spanClass = escapeHtml(String(detail && detail.span_class || 'span6'));
+    const waitingText = escapeHtml(String(detail && detail.waiting_text || 'Waiting for data...'));
+    const showAllText = escapeHtml(String(detail && detail.show_all_text || 'Show all'));
+    return `<section class="mgroup ${spanClass}">
+      <h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>${title}</h3>
+      <div class="mgroup-grid">
+        <div class="mcard">
+          <div class="metric-sub" id="${detailId}MoreHint">${waitingText}</div>
+          <ul class="docker-list" id="${detailId}PreviewList"></ul>
+          <details><summary class="monitor-note">${showAllText}</summary><ul class="docker-list" id="${detailId}AllList"></ul></details>
+        </div>
+      </div>
+    </section>`;
+  }).join('');
+}
+function integrationHealthClass(row) {
+  if (!row || row.enabled === false) return '';
+  if (row.available === false || row.last_error) return 'danger';
+  if (row.available === true) return 'ok';
+  return 'warn';
+}
+function integrationHealthText(row) {
+  if (!row) return 'Unknown';
+  if (row.enabled === false) return 'Disabled';
+  if (row.available === false) return 'Unavailable';
+  if (row.available === true) return 'Ready';
+  return 'Unknown';
+}
+function renderIntegrationOverview(s) {
+  const overview = (s && s.integration_overview && typeof s.integration_overview === 'object') ? s.integration_overview : {};
+  const cardsBox = document.getElementById('integrationDashboardCards');
+  const chipsBox = document.getElementById('integrationHealthChips');
+  const healthBox = document.getElementById('integrationHealthList');
+  const cmdBox = document.getElementById('commandRegistryList');
+  const cmdHint = document.getElementById('commandRegistryHint');
+  const dashboardCards = Array.isArray(overview.dashboard_cards) ? overview.dashboard_cards : [];
+  const healthChips = Array.isArray(overview.health_chips) ? overview.health_chips : [];
+  const healthRows = Array.isArray(overview.health_rows) ? overview.health_rows : [];
+  const commandGroups = Array.isArray(overview.command_groups) ? overview.command_groups : [];
+  if (cardsBox) {
+    if (!dashboardCards.length) {
+      cardsBox.innerHTML = '<div class="monitor-note">Waiting for integration metadata...</div>';
+    } else {
+      cardsBox.innerHTML = dashboardCards.map((card) => {
+        const icon = escapeHtml(String(card && card.icon_class || 'mdi-puzzle-outline'));
+        const label = escapeHtml(String(card && card.label || 'Integration'));
+        const sourceText = escapeHtml(String(card && card.source_text || 'Source: --'));
+        const commandsText = escapeHtml(String(card && card.commands_text || '--'));
+        const statusClass = escapeHtml(String(card && card.status_class || ''));
+        const statusText = escapeHtml(String(card && card.status_text || 'Unknown'));
+        return `<div class="integration-dashboard-card">
+          <div class="integration-dashboard-head">
+            <div class="integration-dashboard-title"><span class="mdi ${icon}" aria-hidden="true"></span>${label}</div>
+            <span class="status-pill ${statusClass}">${statusText}</span>
+          </div>
+          <div class="integration-dashboard-meta">${sourceText}</div>
+          <div class="integration-dashboard-meta">${commandsText}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+  if (chipsBox) {
+    if (!healthChips.length) {
+      chipsBox.innerHTML = '';
+    } else {
+      chipsBox.innerHTML = healthChips.map((chip) => {
+        const statusClass = escapeHtml(String(chip && chip.status_class || ''));
+        const text = escapeHtml(String(chip && chip.text || ''));
+        return `<div class="status-pill ${statusClass}">${text}</div>`;
+      }).join('');
+    }
+  }
+  if (healthBox) {
+    if (!healthRows.length) {
+      healthBox.innerHTML = '<div class="monitor-note">Waiting for integration health...</div>';
+    } else {
+      healthBox.innerHTML = healthRows.map((row) => {
+        const statusClass = escapeHtml(String(row && row.status_class || ''));
+        const commandHtml = Array.isArray(row && row.commands) && row.commands.length
+          ? `<div class="integration-health-tags">${row.commands.map((cmd) => `<span>${escapeHtml(String(cmd))}</span>`).join('')}</div>`
+          : '';
+        const errorHtml = row && row.error_text
+          ? `<div class="integration-health-error">Last error: ${escapeHtml(String(row.error_text))}</div>`
+          : '';
+        return `<div class="integration-health-row">
+          <div class="integration-health-head">
+            <div class="integration-health-title">${escapeHtml(String(row && row.title || 'Integration'))}</div>
+            <span class="status-pill ${statusClass}">${escapeHtml(String(row && row.status_text || 'Unknown'))}</span>
+          </div>
+          <div class="integration-health-meta">${escapeHtml(String(row && row.source_text || 'Source: --'))}</div>
+          <div class="integration-health-meta">${escapeHtml(String(row && row.refresh_text || 'Refreshed --'))} • ${escapeHtml(String(row && row.success_text || 'Last success --'))}</div>
+          ${errorHtml}
+          ${commandHtml}
+        </div>`;
+      }).join('');
+    }
+  }
+
+  if (cmdHint) {
+    cmdHint.textContent = String(overview.command_hint || 'Waiting for command registry...');
+  }
+  if (cmdBox) {
+    if (!commandGroups.length) {
+      cmdBox.innerHTML = '<div class="monitor-note">Waiting for command registry...</div>';
+    } else {
+      cmdBox.innerHTML = commandGroups.map((group) => {
+        const ownerTitle = String(group && group.title || 'Commands');
+        const ownerIcon = group && group.icon_class ? `mdi ${escapeHtml(String(group.icon_class))}` : '';
+        const rowsHtml = (Array.isArray(group && group.rows) ? group.rows : []).map((entry) => {
+          const patterns = String(entry && entry.patterns_text || '--');
+          const destructive = entry && entry.destructive ? '<span class="command-registry-flag">destructive</span>' : '';
+          const label = String(entry && (entry.label || entry.command_id) || '--');
+          return `<div class="command-registry-row">
+            <div class="command-registry-title">${escapeHtml(label)} ${destructive}</div>
+            <div class="command-registry-meta">${escapeHtml(patterns)}</div>
+          </div>`;
+        }).join('');
+        return `<div class="command-registry-group">
+          <div class="command-registry-owner">${ownerIcon ? `<span class="${ownerIcon}" aria-hidden="true"></span>` : ''}${escapeHtml(ownerTitle)}</div>
+          ${rowsHtml}
+        </div>`;
+      }).join('');
+    }
+  }
+}
+function metricNumber(metrics, key) {
+  if (!metrics || !Object.prototype.hasOwnProperty.call(metrics, key) || metrics[key] === '') return null;
+  const n = Number(metrics[key]);
+  return Number.isFinite(n) ? n : null;
+}
+function monitorCardSeverity(kind, values) {
+  const primary = Number(values && values.primary);
+  const secondary = Number(values && values.secondary);
+  switch (String(kind || '')) {
+    case 'cpu_pct':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 70 ? 'sev-warn' : 'sev-ok';
+    case 'mem_pct':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'cpu_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 85 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'traffic_pair':
+    case 'disk_io_pair':
+      return ((primary || 0) + (secondary || 0)) > 50000 ? 'sev-warn' : 'sev-ok';
+    case 'disk_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 55 ? 'sev-danger' : primary >= 48 ? 'sev-warn' : 'sev-ok';
+    case 'disk_usage':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 92 ? 'sev-danger' : primary >= 80 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_util':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 95 ? 'sev-danger' : primary >= 80 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_temp':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 85 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'gpu_mem':
+      if (!Number.isFinite(primary)) return null;
+      return primary >= 90 ? 'sev-danger' : primary >= 75 ? 'sev-warn' : 'sev-ok';
+    case 'docker_counts':
+      return Number(values && values.tertiary || 0) > 0 ? 'sev-warn' : 'sev-ok';
+    case 'always_ok':
+      return 'sev-ok';
+    default:
+      return null;
+  }
+}
+function monitorCardSparkValues(s, card) {
+  const keys = Array.isArray(card && card.spark_keys) ? card.spark_keys : [];
+  if (!keys.length) return [];
+  if (keys.length === 1) return historyOf(s, keys[0]);
+  const series = keys.map((key) => historyOf(s, key));
+  const size = Math.max(...series.map((items) => items.length), 0);
+  return Array.from({ length: size }, (_, index) => series.reduce((sum, items) => sum + Number(items[index] || 0), 0));
+}
+function monitorCardViewModel(card, metrics, workloadMode) {
+  const primary = metricNumber(metrics, card.metric_key);
+  const secondary = metricNumber(metrics, card.secondary_metric_key);
+  const tertiary = metricNumber(metrics, card.tertiary_metric_key);
+  const values = { primary, secondary, tertiary };
+  const subtextFallback = String(card && card.subtext || '');
+  switch (String(card && card.render_kind || '')) {
+    case 'percent_one_decimal':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}%` : '--',
+        subText: primary !== null ? subtextFallback : 'Waiting for telemetry',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'temp_one_decimal':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}°C` : '--',
+        subText: subtextFallback || 'Temperature',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'uptime':
+      return {
+        valueText: primary !== null ? fmtUptimeSec(primary) : '--',
+        subText: primary !== null ? `${Math.round(primary)}s total` : 'Waiting for telemetry',
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'pair_round':
+      return {
+        valueText: (primary !== null || secondary !== null) ? `${primary !== null ? Math.round(primary) : '...'} / ${secondary !== null ? Math.round(secondary) : '...'}` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'disk_temp_usage':
+      return {
+        valueText: primary !== null ? `${primary.toFixed(1)}°C` : '--',
+        subText: secondary !== null ? `${secondary.toFixed(1)}% used` : (subtextFallback || 'Temperature / Usage'),
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'integer':
+      return {
+        valueText: primary !== null ? `${Math.round(primary)}` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'integer_percent':
+      return {
+        valueText: primary !== null ? `${Math.round(primary)}%` : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    case 'docker_counts':
+      return {
+        valueText: `${metrics.DOCKRUN ?? '--'} / ${metrics.DOCKSTOP ?? '--'} / ${metrics.DOCKUNH ?? '--'}`,
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, { primary: metrics.DOCKRUN, secondary: metrics.DOCKSTOP, tertiary: metrics.DOCKUNH }),
+      };
+    case 'vm_counts':
+      return {
+        valueText: workloadMode === 'homeassistant'
+          ? `${metrics.VMSRUN ?? '--'}`
+          : `${metrics.VMSRUN ?? '--'} / ${metrics.VMSPAUSE ?? '--'} / ${metrics.VMSSTOP ?? '--'} / ${metrics.VMSOTHER ?? '--'}`,
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+    default:
+      return {
+        valueText: primary !== null ? String(primary) : '--',
+        subText: subtextFallback,
+        sev: monitorCardSeverity(card && card.severity_kind, values),
+      };
+  }
+}
+function updateMonitorCardsFromMetadata(s, workloadMode) {
+  const metrics = (s && s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
+  monitorDashboardGroups(s).forEach((group) => {
+    const cards = Array.isArray(group && group.cards) ? group.cards : [];
+    cards.forEach((card) => {
+      const view = monitorCardViewModel(card, metrics, workloadMode);
+      setMetricCard(String(card.card_id || ''), view.valueText, view.subText, view.sev);
+      const sparkColor = String(card && card.spark_color || '').trim();
+      const sparkValues = monitorCardSparkValues(s, card);
+      if (sparkColor && sparkValues.length) setSpark(`spark${String(card.card_id || '')}`, sparkValues, sparkColor);
+      else if (sparkColor) setSpark(`spark${String(card.card_id || '')}`, [], sparkColor);
+    });
+  });
+}
 function updateMonitorDashboard(s) {
   if (!s || typeof s !== 'object') return;
-  const workloadMode = getWorkloadMode(s);
-  currentWorkloadMode = workloadMode;
-  const labels = getWorkloadLabels(workloadMode);
+  const workloadMode = previewUiMode(s);
+  renderMonitorDashboardSections(s);
+  renderMonitorDetailSections(s);
   const m = (s.last_metrics && typeof s.last_metrics === 'object') ? s.last_metrics : {};
-  const n = (k)=> (Object.prototype.hasOwnProperty.call(m,k) && m[k] !== '' ? Number(m[k]) : null);
-  metricText('sumAgent', s.running ? 'Running' : 'Stopped');
-  if (workloadMode === 'homeassistant') metricText('sumDocker', 'A ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • I ' + String(m.VMSRUN ?? '--'));
-  else metricText('sumDocker', 'D ' + String(m.DOCKRUN ?? '--') + '/' + String(m.DOCKSTOP ?? '--') + ' • VM ' + String(m.VMSRUN ?? '--') + '/' + String(m.VMSPAUSE ?? '--') + '/' + String(m.VMSSTOP ?? '--'));
-  metricText('sumAge', fmtAgeSec(s.last_metrics_age_s));
-  metricText('sumPower', String(m.POWER || 'RUNNING'));
-  const cpu = n('CPU'), mem = n('MEM'), temp = n('TEMP'), up = n('UP');
-  const rx = n('RX'), tx = n('TX'), dtemp = n('DISK'), dpct = n('DISKPCT'), dr = n('DISKR'), dw = n('DISKW');
-  const fan = n('FAN'), gu = n('GPUU'), gt = n('GPUT'), gvm = n('GPUVM');
-  setMetricCard('CPU', cpu!==null ? cpu.toFixed(1) + '%' : '--', cpu!==null ? 'Current load' : 'Waiting for telemetry', cpu===null?null:(cpu>=90?'sev-danger':cpu>=70?'sev-warn':'sev-ok'));
-  setMetricCard('MEM', mem!==null ? mem.toFixed(1) + '%' : '--', mem!==null ? 'Used memory' : 'Waiting for telemetry', mem===null?null:(mem>=90?'sev-danger':mem>=75?'sev-warn':'sev-ok'));
-  setMetricCard('TEMP', temp!==null ? temp.toFixed(1) + '°C' : '--', 'CPU sensor', temp===null?null:(temp>=85?'sev-danger':temp>=75?'sev-warn':'sev-ok'));
-  setMetricCard('UP', up!==null ? fmtUptimeSec(up) : '--', up!==null ? String(Math.round(up)) + 's total' : 'Waiting for telemetry', 'sev-ok');
-  setMetricCard('NET', (rx!==null||tx!==null) ? String(rx!==null?Math.round(rx):'...') + ' / ' + String(tx!==null?Math.round(tx):'...') : '--', 'RX / TX kbps', ((rx||0)+(tx||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISKIO', (dr!==null||dw!==null) ? String(dr!==null?Math.round(dr):'...') + ' / ' + String(dw!==null?Math.round(dw):'...') : '--', 'Read / Write kB/s', ((dr||0)+(dw||0))>50000 ? 'sev-warn' : 'sev-ok');
-  setMetricCard('DISK', dtemp!==null ? dtemp.toFixed(1) + '°C' : '--', dpct!==null ? dpct.toFixed(1) + '% used' : 'Temperature / Usage', dtemp===null?null:(dtemp>=55?'sev-danger':dtemp>=48?'sev-warn':'sev-ok'));
-  setMetricCard('DISKPCT', dpct!==null ? dpct.toFixed(1) + '%' : '--', 'Disk usage', dpct===null?null:(dpct>=92?'sev-danger':dpct>=80?'sev-warn':'sev-ok'));
-  setMetricCard('FAN', fan!==null ? String(Math.round(fan)) : '--', 'RPM', 'sev-ok');
-  setMetricCard('GPUU', gu!==null ? String(Math.round(gu)) + '%' : '--', 'GPU utilization', gu===null?null:(gu>=95?'sev-danger':gu>=80?'sev-warn':'sev-ok'));
-  setMetricCard('GPUT', gt!==null ? gt.toFixed(1) + '°C' : '--', 'GPU temp', gt===null?null:(gt>=85?'sev-danger':gt>=75?'sev-warn':'sev-ok'));
-  setMetricCard('GPUVM', gvm!==null ? String(Math.round(gvm)) + '%' : '--', 'VRAM usage', gvm===null?null:(gvm>=90?'sev-danger':gvm>=75?'sev-warn':'sev-ok'));
-  setMetricCard('DockerCounts', String(m.DOCKRUN ?? '--') + ' / ' + String(m.DOCKSTOP ?? '--') + ' / ' + String(m.DOCKUNH ?? '--'), labels.dockerSummary, (Number(m.DOCKUNH||0)>0) ? 'sev-warn' : 'sev-ok');
-  if (workloadMode === 'homeassistant') setMetricCard('VmCounts', String(m.VMSRUN ?? '--'), labels.vmSummary, 'sev-ok');
-  else setMetricCard('VmCounts', String(m.VMSRUN ?? '--') + ' / ' + String(m.VMSPAUSE ?? '--') + ' / ' + String(m.VMSSTOP ?? '--') + ' / ' + String(m.VMSOTHER ?? '--'), labels.vmSummary, 'sev-ok');
-  renderDockerLists(parseDockerCompact(m.DOCKER));
-  renderVmLists(parseVmCompact(m.VMS));
-  setSpark('sparkCPU', historyOf(s,'CPU'), '#60a5fa');
-  setSpark('sparkMEM', historyOf(s,'MEM'), '#34d399');
-  setSpark('sparkTEMP', historyOf(s,'TEMP'), '#fb923c');
-  setSpark('sparkUP', historyOf(s,'UP'), '#a78bfa');
-  const rxh = historyOf(s,'RX'); const txh = historyOf(s,'TX');
-  const netHist = rxh.map((v,i)=> Number(v||0) + Number((txh[i]||0)) );
-  setSpark('sparkNET', netHist, '#22d3ee');
-  const drh = historyOf(s,'DISKR'); const dwh = historyOf(s,'DISKW');
-  const dioHist = drh.map((v,i)=> Number(v||0) + Number((dwh[i]||0)) );
-  setSpark('sparkDISKIO', dioHist, '#f472b6');
-  setSpark('sparkDISK', historyOf(s,'DISK'), '#f59e0b');
-  setSpark('sparkDISKPCT', historyOf(s,'DISKPCT'), '#10b981');
-  setSpark('sparkFAN', historyOf(s,'FAN'), '#fbbf24');
-  setSpark('sparkGPUU', historyOf(s,'GPUU'), '#38bdf8');
-  setSpark('sparkGPUT', historyOf(s,'GPUT'), '#fb7185');
-  setSpark('sparkGPUVM', historyOf(s,'GPUVM'), '#c084fc');
+  updateSummaryBarFromMetadata(s, workloadMode);
+  updateMonitorCardsFromMetadata(s, workloadMode);
+  updateMonitorDetailsFromMetadata(s);
+  renderIntegrationOverview(s);
   updateEspPreview(s);
 }
 function updateEspPreview(s) {
@@ -1128,8 +1469,8 @@ function updateEspPreview(s) {
   const gpuTempHist = historyOf(s,'GPUT');
   const host = (s && typeof s.host_name === 'string') ? s.host_name.trim() : '';
 
-  metricText('espNetRxVal', rx !== null ? fmtEspMbps(rx) : '--');
-  metricText('espNetTxVal', tx !== null ? fmtEspMbps(tx) : '--');
+  metricText('espNetRxVal', rx !== null ? fmtEspMBps(rx) : '--');
+  metricText('espNetTxVal', tx !== null ? fmtEspMBps(tx) : '--');
   const netGraphEl = document.getElementById('espNetGraph');
   const netLoadingEl = document.getElementById('espNetLoading');
   const netScaleEl = document.getElementById('espNetScale');
@@ -1662,12 +2003,16 @@ async function previewHostPowerCommands() {
       }),
     });
     const data = await r.json();
-    const s = data && data.shutdown ? data.shutdown : {};
-    const rr = data && data.restart ? data.restart : {};
-    box.textContent =
-      `CMD=shutdown -> ${s.ok ? s.command : (s.message || 'not available')}
-` +
-      `CMD=restart  -> ${rr.ok ? rr.command : (rr.message || 'not available')}`;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    if (!items.length) {
+      box.textContent = 'No host power commands registered.';
+      return;
+    }
+    box.textContent = items.map((item) => {
+      const trigger = String((item && item.trigger) || (item && item.command_id) || 'command');
+      const resolved = item && item.ok ? item.command : (item && item.message) || 'not available';
+      return `CMD=${trigger} -> ${resolved}`;
+    }).join('\n');
   } catch (_) {
     box.textContent = 'Failed to load preview';
   } finally {
@@ -1687,11 +2032,20 @@ async function detectHostPowerDefaults() {
   try {
     const r = await fetch('/api/host-power-defaults');
     const data = await r.json();
-    if (data && typeof data.shutdown_cmd === 'string') shutdownEl.value = data.shutdown_cmd;
-    if (data && typeof data.restart_cmd === 'string') restartEl.value = data.restart_cmd;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    const byId = Object.create(null);
+    for (const item of items) {
+      if (!item || typeof item.command_id !== 'string') continue;
+      byId[item.command_id] = item;
+    }
+    if (byId.host_shutdown && typeof byId.host_shutdown.default_command === 'string') shutdownEl.value = byId.host_shutdown.default_command;
+    else if (data && typeof data.shutdown_cmd === 'string') shutdownEl.value = data.shutdown_cmd;
+    if (byId.host_restart && typeof byId.host_restart.default_command === 'string') restartEl.value = byId.host_restart.default_command;
+    else if (data && typeof data.restart_cmd === 'string') restartEl.value = data.restart_cmd;
     const osName = (data && data.os) ? data.os : 'host';
+    const loadedCount = items.filter((item) => item && typeof item.default_command === 'string' && item.default_command).length;
     if ((shutdownEl.value || restartEl.value)) {
-      result.textContent = `Loaded defaults for ${osName}`;
+      result.textContent = `Loaded ${loadedCount || 0} registered host power defaults for ${osName}`;
       result.style.color = 'var(--accent)';
     } else {
       result.textContent = `No defaults available for ${osName}`;

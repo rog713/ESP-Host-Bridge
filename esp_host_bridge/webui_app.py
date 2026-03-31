@@ -20,14 +20,22 @@ from urllib.parse import quote_plus
 from .config import (
     _clean_bool,
     _clean_str,
+    REDACTED_SECRET_TEXT,
     atomic_write_json,
     cfg_from_form,
     default_webui_config_path,
     ensure_webui_session_secret,
+    migrate_legacy_webui_config,
     load_cfg,
     normalize_cfg,
+    preserve_secret_fields,
+    redact_cfg,
+    secret_placeholder_text,
     validate_cfg,
     webui_default_cfg,
+)
+from .integrations import (
+    get_integration_spec,
 )
 from .metrics import detect_hardware_choices
 from .runtime import (
@@ -39,10 +47,11 @@ from .runtime import (
     _mdi_codepoint_map_cache,
     _mdi_codepoint_map_cache_err,
     _mdi_codepoint_map_lock,
-    detect_host_power_command_defaults,
+    build_host_power_command_defaults,
+    build_host_power_command_previews,
+    build_browser_status_payload,
     fmt_ts,
     is_home_assistant_app_mode,
-    resolve_host_command_argv,
     RunnerManager,
 )
 from .serial import list_serial_port_choices, test_serial_open
@@ -63,6 +72,443 @@ def _render_mode_toggle_html() -> str:
 
 def _render_topbar_subtitle() -> str:
     return "USB CDC telemetry and control bridge for ESPHome"
+
+
+def _integration_title(integration_id: str, homeassistant_mode: bool) -> str:
+    spec = get_integration_spec(integration_id)
+    if spec is None:
+        return integration_id
+    if homeassistant_mode and spec.homeassistant_title:
+        return spec.homeassistant_title
+    return spec.title or integration_id
+
+
+def _render_config_field_input(field: Any, cfg: Dict[str, Any], homeassistant_mode: bool) -> str:
+    field_name = str(field.name)
+    label = str((field.homeassistant_label if homeassistant_mode else field.label) or field_name)
+    hint = str((field.homeassistant_hint if homeassistant_mode else field.hint) or "")
+    value = cfg.get(field_name, field.default)
+
+    if homeassistant_mode and getattr(field, "readonly_when_homeassistant", False):
+        readonly_value = str(field.homeassistant_value or value or "")
+        control = f'<div class="hint" style="margin-bottom:6px;"><code>{html.escape(readonly_value)}</code></div>'
+    elif getattr(field, "checkbox", False):
+        checked_attr = " checked" if _clean_bool(value, bool(field.default)) else ""
+        control = f'<input name="{html.escape(field_name)}" type="checkbox"{checked_attr}>'
+    elif str(field.kind) in {"float", "int"}:
+        step = str(field.input_step or ("0.1" if str(field.kind) == "float" else "1"))
+        number_value = html.escape(str(value))
+        control = f'<input name="{html.escape(field_name)}" type="number" step="{html.escape(step)}" value="{number_value}">'
+    else:
+        input_attrs = [f'name="{html.escape(field_name)}"', 'type="text"', f'value="{html.escape(str(value or ""))}"']
+        input_id = str(getattr(field, "input_id", "") or "").strip()
+        if input_id:
+            input_attrs.append(f'id="{html.escape(input_id)}"')
+        input_html = f'<input {" ".join(input_attrs)}>'
+        chip_id = str(getattr(field, "chip_id", "") or "").strip()
+        if chip_id:
+            control = (
+                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+                f'{input_html}<span id="{html.escape(chip_id)}" class="sensor-chip auto">Auto</span>'
+                "</div>"
+            )
+        else:
+            control = input_html
+
+    hint_html = f'<div class="hint">{hint}</div>' if hint else ""
+    return f'<div class="row"><label>{html.escape(label)}</label><div>{control}{hint_html}</div></div>'
+
+
+def _render_setup_choice_row(choice: Any) -> str:
+    label = html.escape(str(choice.label or "Detected Choices"))
+    select_id = html.escape(str(choice.select_id or ""))
+    placeholder = html.escape(str(choice.placeholder or "(click Refresh)"))
+    refresh_button_id = html.escape(str(choice.refresh_button_id or ""))
+    refresh_button_label = html.escape(str(choice.refresh_button_label or "Refresh"))
+    result_id = html.escape(str(choice.result_id or ""))
+    buttons_html = "".join(
+        f'<button id="{html.escape(str(btn.button_id))}" class="secondary" type="button">{html.escape(str(btn.label))}</button>'
+        for btn in getattr(choice, "buttons", ()) or ()
+    )
+    hint = str(getattr(choice, "hint", "") or "")
+    hint_html = f'<div class="hint">{hint}</div>' if hint else ""
+    return (
+        f'<div class="row"><label>{label}</label><div>'
+        '<div class="actions" style="margin-top:0;">'
+        f'<select id="{select_id}" style="min-width:280px; flex:1;"><option value="">{placeholder}</option></select>'
+        f'<button id="{refresh_button_id}" class="secondary" type="button">{refresh_button_label}</button>'
+        f'{buttons_html}</div>{hint_html}<div id="{result_id}" class="hint" style="margin-top:6px;"></div></div></div>'
+    )
+
+
+def _render_integration_setup_section(cfg: Dict[str, Any], integration_id: str, homeassistant_mode: bool) -> str:
+    spec = get_integration_spec(integration_id)
+    if spec is None:
+        return ""
+    title = _integration_title(integration_id, homeassistant_mode)
+    icon_class = str(spec.icon_class or "mdi-cog-outline")
+    section_key = str(spec.section_key or integration_id)
+    rows = [
+        _render_config_field_input(field, cfg, homeassistant_mode)
+        for field in spec.config_fields
+        if str(getattr(field, "section_key", "") or "") == section_key
+    ]
+    rows.extend(
+        _render_setup_choice_row(choice)
+        for choice in getattr(spec, "setup_choices", ()) or ()
+        if str(getattr(choice, "section_key", "") or "") == section_key
+    )
+    rows_html = "\n      ".join(rows)
+    return (
+        f'<details class="section" data-section-key="{html.escape(section_key)}">'
+        f'<summary><span class="section-icon" aria-hidden="true"><span class="mdi {html.escape(icon_class)}"></span></span>{html.escape(title)}</summary>'
+        f'<div class="section-body">\n      {rows_html}\n      </div></details>'
+    )
+
+
+def _render_monitor_dashboard_sections(groups: list[dict[str, Any]]) -> str:
+    if not groups:
+        return '<div class="monitor-note">Waiting for monitor dashboard metadata...</div>'
+    sections: list[str] = []
+    for group in groups:
+        title = html.escape(str(group.get("title") or "Metrics"))
+        icon_class = html.escape(str(group.get("icon_class") or "mdi-view-dashboard-outline"))
+        span_class = html.escape(str(group.get("span_class") or "span6"))
+        cards_html: list[str] = []
+        for card in group.get("cards") or []:
+            card_id = str(card.get("card_id") or "").strip()
+            if not card_id:
+                continue
+            label = html.escape(str(card.get("label") or card_id))
+            subtext = html.escape(str(card.get("subtext") or ""))
+            spark_keys = card.get("spark_keys") if isinstance(card.get("spark_keys"), list) else []
+            spark_html = f'<svg id="spark{html.escape(card_id)}"></svg>' if spark_keys else ""
+            cards_html.append(
+                f'<div class="mcard" id="mc{html.escape(card_id)}">'
+                f'<div class="metric-label">{label}</div>'
+                f'<div class="metric-value" id="mv{html.escape(card_id)}">--</div>'
+                f'<div class="metric-sub" id="ms{html.escape(card_id)}">{subtext}</div>'
+                f"{spark_html}"
+                "</div>"
+            )
+        sections.append(
+            f'<section class="mgroup {span_class}">'
+            f'<h3><span class="gicon" aria-hidden="true"><span class="mdi {icon_class}"></span></span>{title}</h3>'
+            f'<div class="mgroup-grid">{"".join(cards_html)}</div>'
+            "</section>"
+        )
+    return "".join(sections)
+
+
+def _render_monitor_detail_sections(details: list[dict[str, Any]]) -> str:
+    if not details:
+        return '<div class="monitor-note">Waiting for workload detail metadata...</div>'
+    sections: list[str] = []
+    for detail in details:
+        detail_id = str(detail.get("detail_id") or "").strip()
+        if not detail_id:
+            continue
+        title = html.escape(str(detail.get("title") or detail_id))
+        span_class = html.escape(str(detail.get("span_class") or "span6"))
+        waiting_text = html.escape(str(detail.get("waiting_text") or "Waiting for data..."))
+        show_all_text = html.escape(str(detail.get("show_all_text") or "Show all"))
+        sections.append(
+            f'<section class="mgroup {span_class}">'
+            f'<h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>{title}</h3>'
+            '<div class="mgroup-grid">'
+            f'<div class="mcard"><div class="metric-sub" id="{html.escape(detail_id)}MoreHint">{waiting_text}</div>'
+            f'<ul class="docker-list" id="{html.escape(detail_id)}PreviewList"></ul>'
+            f'<details><summary class="monitor-note">{show_all_text}</summary>'
+            f'<ul class="docker-list" id="{html.escape(detail_id)}AllList"></ul></details></div>'
+            '</div></section>'
+        )
+    return "".join(sections)
+
+
+def _preview_page_map(preview_ui: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = preview_ui.get("pages") if isinstance(preview_ui, dict) else {}
+    return rows if isinstance(rows, dict) else {}
+
+
+def _render_preview_tabs(preview_ui: dict[str, Any]) -> str:
+    tabs = preview_ui.get("tabs") if isinstance(preview_ui, dict) else []
+    if not isinstance(tabs, list):
+        tabs = []
+    buttons: list[str] = []
+    for tab in tabs:
+        page_id = str(tab.get("page_id") or "").strip()
+        if not page_id:
+            continue
+        label = html.escape(str(tab.get("label") or page_id))
+        icon_class = html.escape(str(tab.get("icon_class") or "mdi-application-outline"))
+        buttons.append(
+            f'<button class="secondary" type="button" data-esp-page="{html.escape(page_id)}">'
+            f'<span class="mdi {icon_class}" aria-hidden="true"></span>{label}</button>'
+        )
+    return "".join(buttons)
+
+
+def _render_preview_home_buttons(preview_ui: dict[str, Any]) -> str:
+    buttons = preview_ui.get("home_buttons") if isinstance(preview_ui, dict) else []
+    if not isinstance(buttons, list):
+        buttons = []
+    rows: list[str] = []
+    for button in buttons:
+        target_page = str(button.get("target_page") or "").strip()
+        position = str(button.get("position") or "").strip()
+        if not target_page or not position:
+            continue
+        title = html.escape(str(button.get("title") or target_page))
+        icon_class = html.escape(str(button.get("icon_class") or "mdi-circle-outline"))
+        rows.append(
+            f'<div class="esp-home-btn {html.escape(position)}" data-esp-nav="{html.escape(target_page)}" title="{title}">'
+            f'<span class="mdi {icon_class}"></span></div>'
+        )
+    return "".join(rows)
+
+
+def _preview_modal_meta(preview_ui: dict[str, Any], target: str) -> dict[str, Any]:
+    modals = preview_ui.get("modals") if isinstance(preview_ui, dict) else {}
+    modal = modals.get(target) if isinstance(modals, dict) else None
+    return modal if isinstance(modal, dict) else {}
+
+
+def _render_preview_page(page: dict[str, Any]) -> str:
+    page_id = str(page.get("page_id") or "").strip()
+    dom_id = html.escape(str(page.get("dom_id") or ""))
+    active_class = " active" if page_id == "home" else ""
+    render_kind = str(page.get("render_kind") or "blank").strip()
+    render_data = page.get("render_data") if isinstance(page.get("render_data"), dict) else {}
+
+    if render_kind == "home":
+        body = (
+            '<div class="esp-home-full">'
+            '<div class="esp-home-canvas">'
+            '<div class="esp-home-cross-v top"></div>'
+            '<div class="esp-home-cross-v bottom"></div>'
+            '<div class="esp-home-cross-h left"></div>'
+            '<div class="esp-home-cross-h right"></div>'
+            '<div class="esp-home-ring"></div>'
+            '<div id="espHomeNavButtons"></div>'
+            '<div class="esp-home-center" title="Screen Saver"><span class="mdi mdi-database-outline"></span></div>'
+            '</div></div>'
+        )
+    elif render_kind == "dual_metric_graph":
+        left_label = html.escape(str(render_data.get("left_label") or ""))
+        left_value_id = html.escape(str(render_data.get("left_value_id") or ""))
+        left_unit = html.escape(str(render_data.get("left_unit") or ""))
+        left_dot_class = html.escape(str(render_data.get("left_dot_class") or "left"))
+        right_label = html.escape(str(render_data.get("right_label") or ""))
+        right_value_id = html.escape(str(render_data.get("right_value_id") or ""))
+        right_unit = html.escape(str(render_data.get("right_unit") or ""))
+        right_dot_class = html.escape(str(render_data.get("right_dot_class") or "right"))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        scale_id = html.escape(str(render_data.get("scale_id") or ""))
+        scale_html = f'<div class="esp-sys-scale" id="{scale_id}">1 MB/s</div>' if scale_id else ""
+        body = (
+            '<div class="esp-dualmetric-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-dualmetric-card">'
+            '<div class="esp-dualmetric-stats">'
+            f'<div class="esp-dualmetric-dot {left_dot_class}"></div>'
+            f'<div class="esp-dualmetric-lbl left">{left_label}</div>'
+            f'<div class="esp-dualmetric-val left" id="{left_value_id}">--</div>'
+            f'<div class="esp-dualmetric-unit left">{left_unit}</div>'
+            f'<div class="esp-dualmetric-dot {right_dot_class}"></div>'
+            f'<div class="esp-dualmetric-lbl right">{right_label}</div>'
+            f'<div class="esp-dualmetric-val right" id="{right_value_id}">--</div>'
+            f'<div class="esp-dualmetric-unit right">{right_unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            f'{scale_html}'
+            '</div></div></div>'
+        )
+    elif render_kind == "system_graph":
+        left_label = html.escape(str(render_data.get("left_label") or "CPU"))
+        left_value_id = html.escape(str(render_data.get("left_value_id") or ""))
+        left_unit = html.escape(str(render_data.get("left_unit") or "%"))
+        right_label = html.escape(str(render_data.get("right_label") or "MEMORY"))
+        right_value_id = html.escape(str(render_data.get("right_value_id") or ""))
+        right_unit = html.escape(str(render_data.get("right_unit") or "%"))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        body = (
+            '<div class="esp-sys-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-sys-card">'
+            '<div class="esp-sys-stats">'
+            '<div class="esp-sys-dot cpu"></div>'
+            f'<div class="esp-sys-t" style="left:42px; top:12px;">{left_label}</div>'
+            f'<div class="esp-sys-v" id="{left_value_id}" style="left:42px; top:22px;">--</div>'
+            f'<div class="esp-sys-u cpu">{left_unit}</div>'
+            '<div class="esp-sys-dot mem"></div>'
+            f'<div class="esp-sys-t" style="left:226px; top:12px;">{right_label}</div>'
+            f'<div class="esp-sys-v mem" id="{right_value_id}" style="left:226px; top:22px;">--</div>'
+            f'<div class="esp-sys-u mem">{right_unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            '</div></div></div>'
+        )
+    elif render_kind == "metric_graph":
+        dot_class = html.escape(str(render_data.get("dot_class") or ""))
+        value_class = html.escape(str(render_data.get("value_class") or ""))
+        metric_title = html.escape(str(render_data.get("metric_title") or "Metric"))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        unit = html.escape(str(render_data.get("unit") or ""))
+        graph_id = html.escape(str(render_data.get("graph_id") or ""))
+        loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        body = (
+            '<div class="esp-metric-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-metric-card">'
+            '<div class="esp-metric-stats">'
+            f'<div class="esp-metric-dot{dot_class}"></div>'
+            f'<div class="esp-metric-title">{metric_title}</div>'
+            f'<div class="esp-metric-value{value_class}" id="{value_id}">--</div>'
+            f'<div class="esp-metric-unit">{unit}</div>'
+            '</div>'
+            '<div class="esp-sys-chartbox">'
+            f'<div id="{graph_id}"></div>'
+            f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            '</div></div></div>'
+        )
+    elif render_kind == "workload_list":
+        rows_id = html.escape(str(render_data.get("rows_id") or ""))
+        empty_id = html.escape(str(render_data.get("empty_id") or ""))
+        icon_class = html.escape(str(page.get("home_button_icon_class") or page.get("tab_icon_class") or "mdi-puzzle-outline"))
+        body = (
+            '<div class="esp-workload-page">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-workload-list" id="{rows_id}"></div>'
+            f'<div class="esp-workload-empty" id="{empty_id}" hidden>'
+            f'<div class="esp-workload-empty-icon"><span class="mdi {icon_class}"></span></div>'
+            '<div class="esp-workload-empty-title"></div>'
+            '<div class="esp-workload-empty-subtitle"></div>'
+            '</div></div>'
+        )
+    elif render_kind == "uptime":
+        status_id = html.escape(str(render_data.get("status_id") or ""))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        body = (
+            '<div class="esp-uptime-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-uptime-card">'
+            f'<div class="esp-uptime-status" id="{status_id}"></div>'
+            f'<div class="esp-uptime-value" id="{value_id}">--</div>'
+            '</div></div>'
+        )
+    elif render_kind == "hostname":
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        waiting_text = html.escape(str(render_data.get("waiting_text") or "Waiting for host..."))
+        body = (
+            '<div class="esp-hostname-page">'
+            '<div class="esp-page-hint"></div>'
+            '<div class="esp-hostname-card">'
+            f'<div class="esp-hostname-value" id="{value_id}">{waiting_text}</div>'
+            '</div></div>'
+        )
+    elif render_kind == "brightness":
+        label = html.escape(str(render_data.get("label") or "Screen Brightness"))
+        fill_id = html.escape(str(render_data.get("fill_id") or ""))
+        knob_id = html.escape(str(render_data.get("knob_id") or ""))
+        value_id = html.escape(str(render_data.get("value_id") or ""))
+        body = (
+            '<div class="esp-settings1-page">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-settings1-label">{label}</div>'
+            '<div class="esp-settings1-slider">'
+            '<div class="esp-settings1-track">'
+            f'<div class="esp-settings1-fill" id="{fill_id}"></div>'
+            f'<div class="esp-settings1-knob" id="{knob_id}"></div>'
+            '</div></div>'
+            f'<div class="esp-settings1-value" id="{value_id}">255</div>'
+            '</div>'
+        )
+    elif render_kind == "power":
+        status_id = html.escape(str(render_data.get("status_id") or ""))
+        body = (
+            '<div class="esp-power-exact">'
+            '<div class="esp-page-hint"></div>'
+            f'<div class="esp-power-status" id="{status_id}" hidden></div>'
+            '<div class="esp-power-btn shutdown">Shutdown</div>'
+            '<div class="esp-power-btn restart">Restart</div>'
+            '</div>'
+        )
+    else:
+        body = '<div class="esp-page-hint"></div>'
+
+    return f'<div class="esp-page{active_class}" id="{dom_id}">{body}</div>'
+
+
+def _render_preview_pages(preview_ui: dict[str, Any]) -> str:
+    page_map = _preview_page_map(preview_ui)
+    page_order = preview_ui.get("page_order") if isinstance(preview_ui, dict) else []
+    if not isinstance(page_order, list):
+        page_order = []
+    rows: list[str] = []
+    for page_id in page_order:
+        page = page_map.get(str(page_id))
+        if isinstance(page, dict):
+            rows.append(_render_preview_page(page))
+    return "".join(rows)
+
+
+def _render_summary_bar(chips: list[dict[str, Any]]) -> str:
+    if not chips:
+        return ""
+    return "".join(
+        f'<div class="summary-chip"><div class="k">{html.escape(str(chip.get("label") or chip.get("chip_id") or "Summary"))}</div>'
+        f'<div class="v" id="sum{html.escape(str(chip.get("chip_id") or "Value"))}">--</div></div>'
+        for chip in chips
+    )
+
+
+def _render_preview_cards(cards: list[dict[str, Any]]) -> str:
+    if not cards:
+        return '<div class="metric-card"><div class="metric-label">Telemetry</div><div class="metric-value">Waiting...</div><div class="metric-sub">No preview metadata</div></div>'
+    return "".join(
+        f'<div class="metric-card">'
+        f'<div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi {html.escape(str(card.get("icon_class") or "mdi-chart-box-outline"))}"></span></span>{html.escape(str(card.get("label") or card.get("card_id") or "Metric"))}</div>'
+        f'<div class="metric-value" id="m{html.escape(str(card.get("card_id") or "Metric"))}">Waiting...</div>'
+        f'<div class="metric-sub">{html.escape(str(card.get("subtext") or ""))}</div>'
+        f'</div>'
+        for card in cards
+    )
+
+
+def _preview_action_group(groups: list[dict[str, Any]], target: str) -> dict[str, Any]:
+    needle = str(target or "").strip().lower()
+    for group in groups:
+        if str(group.get("target") or "").strip().lower() == needle:
+            return group
+    return {}
+
+
+def _render_preview_action_buttons(groups: list[dict[str, Any]], target: str) -> str:
+    group = _preview_action_group(groups, target)
+    actions = group.get("actions") if isinstance(group, dict) else []
+    if not isinstance(actions, list):
+        actions = []
+    out: list[str] = []
+    for action in actions:
+        command_id = html.escape(str(action.get("command_id") or ""))
+        label = html.escape(str(action.get("label") or action.get("command_id") or "--"))
+        button_class = html.escape(str(action.get("button_class") or "secondary"))
+        out.append(
+            f'<button class="esp-modal-action {button_class}" type="button" '
+            f'data-esp-preview-command="{command_id}">{label}</button>'
+        )
+    return "".join(out)
+
+
+def _render_preview_action_footnote(groups: list[dict[str, Any]], target: str) -> str:
+    group = _preview_action_group(groups, target)
+    return html.escape(str(group.get("footnote") or "")) if isinstance(group, dict) else ""
 
 def page_html(title: str, body: str) -> str:
     mode_toggle_html = _render_mode_toggle_html()
@@ -229,7 +675,7 @@ def create_app(
         raise RuntimeError("Flask is required for webui mode. Install with: pip install flask") from e
 
     app = Flask(__name__, static_folder=None)
-    cfg_path = default_webui_config_path()
+    cfg_path, cfg_migrated, cfg_migrated_from = migrate_legacy_webui_config(default_webui_config_path())
     def _env_flag(name: str, default: bool) -> bool:
         raw = os.environ.get(name)
         if raw is None:
@@ -238,9 +684,12 @@ def create_app(
 
     autostart = _env_flag("AUTOSTART", True) if autostart_override is None else bool(autostart_override)
     python_bin = os.environ.get("WEBUI_PYTHON", sys.executable or "python3")
-    self_script = Path(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", str(Path(__file__).resolve())))
-    package_module = (__package__ or "").split(".", 1)[0] or None
+    portable_script = str(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", "") or "").strip()
+    self_script = Path(portable_script or str(Path(__file__).resolve()))
+    package_module = None if portable_script else ((__package__ or "").split(".", 1)[0] or None)
     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
+    if cfg_migrated and cfg_migrated_from is not None and hasattr(pub, "log_event"):
+        pub.log_event(f"[config migrated] {cfg_migrated_from} -> {cfg_path}")
     initial_cfg = load_cfg(cfg_path)
     initial_cfg, secret_updated = ensure_webui_session_secret(initial_cfg)
     if secret_updated:
@@ -342,7 +791,12 @@ def create_app(
     @app.get("/")
     def index() -> str:
         cfg = load_cfg(cfg_path)
-        st = pub.status()
+        homeassistant_mode = is_home_assistant_app_mode()
+        st = build_browser_status_payload(
+            pub.status(),
+            homeassistant_mode=homeassistant_mode,
+            redact_mask=REDACTED_SECRET_TEXT,
+        )
         logs = pub.logs_tail_text()
         comm_logs = pub.comm_logs_tail_text()
         msg = request.args.get("msg", "").strip()
@@ -351,82 +805,16 @@ def create_app(
         msg_html = f'<div class="ok">{html.escape(msg)}</div>' if msg else ""
         err_html = f'<div class="err">{html.escape(err)}</div>' if err else ""
         logout_action = "/logout"
-        homeassistant_mode = is_home_assistant_app_mode()
-        workload_section_title = "Add-ons" if homeassistant_mode else "Docker"
-        workload_enable_label = "Enable Add-on Polling" if homeassistant_mode else "Enable Docker Polling"
-        workload_enable_hint = (
-            "Turn add-on polling on or off without changing the Home Assistant Supervisor data source."
-            if homeassistant_mode
-            else "Turn Docker polling on or off without deleting the socket path."
-        )
-        workload_source_label = "Add-on Source" if homeassistant_mode else "Docker Socket"
-        workload_source_hint = (
-            "Home Assistant app mode reads add-ons from the Supervisor API. This value is ignored."
-            if homeassistant_mode
-            else "Only used when Docker polling is enabled."
-        )
-        workload_interval_label = "Add-on Poll Interval (s)" if homeassistant_mode else "Docker Poll Interval (s)"
-        workload_interval_hint = (
-            "How often the Supervisor add-on list is refreshed. Set to <code>0</code> to disable add-on polling."
-            if homeassistant_mode
-            else "Set to <code>0</code> to disable Docker polling entirely. <code>2</code> is a good default on low-power hosts."
-        )
-        vm_section_title = "Integrations" if homeassistant_mode else "Virtual Machines"
-        vm_enable_label = "Enable Integration Polling" if homeassistant_mode else "Enable VM Polling"
-        vm_enable_hint = (
-            "Turn integration polling on or off without changing the Home Assistant Core query settings."
-            if homeassistant_mode
-            else "Turn VM polling on or off without deleting the <code>virsh</code> settings."
-        )
-        vm_binary_label = "Integration Source" if homeassistant_mode else "Virsh Binary"
-        vm_binary_hint = (
-            "Home Assistant app mode reads integrations from the Home Assistant Core WebSocket API. This value is ignored."
-            if homeassistant_mode
-            else "Path to <code>virsh</code>. Use an absolute path if the Web UI launches outside your shell environment."
-        )
-        vm_uri_label = "Integration Query" if homeassistant_mode else "Virsh URI"
-        vm_uri_hint = (
-            "Home Assistant app mode groups entity-registry entries by integration domain. This value is ignored."
-            if homeassistant_mode
-            else "Optional libvirt connection URI, for example <code>qemu:///system</code>."
-        )
-        vm_interval_label = "Integration Poll Interval (s)" if homeassistant_mode else "VM Poll Interval (s)"
-        vm_interval_hint = (
-            "How often the Home Assistant integration registry is refreshed. <code>5</code> is a good default."
-            if homeassistant_mode
-            else "How often VM data is refreshed. <code>5</code> is a good default for low-power hosts."
-        )
-        readonly_attr = ' readonly' if homeassistant_mode else ''
-        workload_source_value = (
-            "Home Assistant Supervisor API"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('docker_socket', '/var/run/docker.sock')))
-        )
-        vm_binary_value = (
-            "Home Assistant Core WebSocket API"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('virsh_binary', 'virsh')))
-        )
-        vm_uri_value = (
-            "config/entity_registry/list_for_display"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('virsh_uri', '')))
-        )
-        workload_source_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{workload_source_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"docker_socket\" type=\"text\" value=\"{workload_source_value}\"{readonly_attr}>"
-        )
-        vm_binary_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{vm_binary_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"virsh_binary\" type=\"text\" value=\"{vm_binary_value}\"{readonly_attr}>"
-        )
-        vm_uri_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{vm_uri_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"virsh_uri\" type=\"text\" value=\"{vm_uri_value}\"{readonly_attr}>"
-        )
+        summary_bar = st.get("summary_bar") or []
+        preview_cards = st.get("preview_cards") or []
+        preview_ui = st.get("preview_ui") or {}
+        preview_pages = _preview_page_map(preview_ui)
+        preview_home = preview_pages.get("home", {})
+        docker_modal = _preview_modal_meta(preview_ui, "docker")
+        vms_modal = _preview_modal_meta(preview_ui, "vms")
+        preview_action_groups = st.get("preview_action_groups") or []
+        monitor_dashboard = st.get("monitor_dashboard") or []
+        monitor_details = st.get("monitor_details") or []
         if homeassistant_mode:
             power_commands_body = """
       <div class=\"row\"><label>Power Control Path</label><div><input type=\"text\" value=\"Home Assistant Supervisor host API\" readonly><div class=\"hint\">Uses <code>POST /host/shutdown</code> for <code>CMD=shutdown</code> and <code>POST /host/reboot</code> for <code>CMD=restart</code> / <code>CMD=reboot</code>.</div></div></div>
@@ -447,16 +835,15 @@ def create_app(
       <div class=\"row\"><label>Allow Host Commands</label><div><input name=\"allow_host_cmds\" type=\"checkbox\" {'checked' if cfg.get('allow_host_cmds') else ''}><div class=\"hint\">Lets the ESP request host actions like shutdown/restart. Leave off unless you need it.</div></div></div>
       <div class=\"row\"><label>Use sudo for Host Commands</label><div><input name=\"host_cmd_use_sudo\" type=\"checkbox\" {'checked' if cfg.get('host_cmd_use_sudo') else ''}><div class=\"hint\">{host_cmd_use_sudo_hint}</div></div></div>
             """
-        workload_summary_label = "Add-on Summary" if homeassistant_mode else "Docker Summary"
-        workload_summary_sub = "Run / Stop / Issue" if homeassistant_mode else "Run / Stop / Unhealthy"
-        vm_summary_label = "Integration Summary" if homeassistant_mode else "VM Summary"
-        vm_summary_sub = "Loaded integrations" if homeassistant_mode else "Run / Pause / Stop / Other"
-        workload_list_label = "Add-ons" if homeassistant_mode else "Containers"
-        workload_waiting_text = "Waiting for add-on data..." if homeassistant_mode else "Waiting for Docker data..."
-        workload_show_all = "Show all add-ons" if homeassistant_mode else "Show all containers"
-        vm_list_label = "Integrations" if homeassistant_mode else "Virtual Machines"
-        vm_waiting_text = "Waiting for integration data..." if homeassistant_mode else "Waiting for VM data..."
-        vm_show_all = "Show all integrations" if homeassistant_mode else "Show all virtual machines"
+        saved_webui_password_placeholder = secret_placeholder_text(
+            bool(_clean_str(cfg.get("webui_password_hash"), "")),
+            REDACTED_SECRET_TEXT,
+        )
+        webui_password_hint = (
+            f'Leave blank to keep the current password. Stored value is masked as <code>{html.escape(saved_webui_password_placeholder)}</code>. Disable protection to remove it.'
+            if saved_webui_password_placeholder
+            else "Leave blank to keep the current password. Disable protection to remove it."
+        )
         body = f"""
 <div id=\"setupView\" class=\"grid\">
   <div class=\"card\">
@@ -479,36 +866,18 @@ def create_app(
       <div class=\"row\"><label>Port Test</label><div><button id=\"testSerialBtn\" class=\"secondary\" type=\"button\">Test Port</button><div class=\"hint\">Checks whether the selected Serial Port opens cleanly. For <code>NONE</code>/<code>DEBUG</code>, it confirms serial bypass mode instead.</div><div id=\"testSerialResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       </div></details>
       <details class=\"section\" data-section-key=\"telemetry\" open><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-chart-line\"></span></span>Telemetry</summary><div class=\"section-body\">
-      <div class=\"row\"><label>Network Interface</label><div><input id=\"ifaceInput\" name=\"iface\" type=\"text\" value=\"{html.escape(str(cfg.get('iface', '')))}\"><div class=\"hint\">Optional. Leave blank to auto-detect, or set a name like <code>eth0</code>/<code>br0</code>.</div></div></div>
-      <div class=\"row\"><label>Detected Interfaces</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"ifaceSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Interfaces)</option></select><button id=\"refreshIfaceBtn\" class=\"secondary\" type=\"button\">Refresh Interfaces</button><button id=\"useIfaceBtn\" class=\"secondary\" type=\"button\">Use Interface</button></div><div id=\"ifaceResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       <div class=\"row\"><label>Update Interval (s)</label><div><input name=\"interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('interval', 1.0)))}\"><div class=\"hint\">How often metrics are sent to the ESP device.</div></div></div>
       <div class=\"row\"><label>Connection Timeout (s)</label><div><input name=\"timeout\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('timeout', 2.0)))}\"><div class=\"hint\">Timeout used for serial reads and host metric checks.</div></div></div>
-      <div class=\"row\"><label>Disk Device</label><div><input id=\"diskDeviceInput\" name=\"disk_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_device', '')))}\"><div class=\"hint\">Optional. Set a device path like <code>/dev/sda</code> if auto-detection is not correct.</div></div></div>
-      <div class=\"row\"><label>Disk Temp Device</label><div><input id=\"diskTempDeviceInput\" name=\"disk_temp_device\" type=\"text\" value=\"{html.escape(str(cfg.get('disk_temp_device', '')))}\"><div class=\"hint\">Optional override for temperature checks (for example <code>/dev/nvme0</code> or <code>/dev/sda</code>).</div></div></div>
-      <div class=\"row\"><label>Detected Disk Devices</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"diskDeviceSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Disks)</option></select><button id=\"refreshDiskBtn\" class=\"secondary\" type=\"button\">Refresh Disks</button><button id=\"useDiskBtn\" class=\"secondary\" type=\"button\">Use for Disk</button><button id=\"useDiskTempBtn\" class=\"secondary\" type=\"button\">Use for Temp</button><button id=\"useDiskBothBtn\" class=\"secondary\" type=\"button\">Use for Both</button></div><div id=\"diskResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
-      <div class=\"row\"><label>CPU Temp Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"cpuTempSensorInput\" name=\"cpu_temp_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('cpu_temp_sensor', '')))}\"><span id=\"cpuTempSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto CPU temp detection, or choose a detected sensor below.</div></div></div>
-      <div class=\"row\"><label>Detected CPU Temp Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"cpuTempSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh CPU Temp Sensors)</option></select><button id=\"refreshCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Refresh CPU Temp Sensors</button><button id=\"useCpuTempSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"cpuTempSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
-      <div class=\"row\"><label>Enable GPU Metrics</label><div><input name=\"gpu_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('gpu_polling_enabled', True) else ''}><div class=\"hint\">Turn GPU temperature, utilization, and VRAM polling on or off without affecting other telemetry.</div></div></div>
-      <div class=\"row\"><label>Fan Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"fanSensorInput\" name=\"fan_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('fan_sensor', '')))}\"><span id=\"fanSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto fan detection, or choose a detected sensor below.</div></div></div>
-      <div class=\"row\"><label>Detected Fan Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"fanSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Fan Sensors)</option></select><button id=\"refreshFanSensorBtn\" class=\"secondary\" type=\"button\">Refresh Fan Sensors</button><button id=\"useFanSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"fanSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       </div></details>
-      <details class=\"section\" data-section-key=\"docker\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-docker\"></span></span>{workload_section_title}</summary><div class=\"section-body\">
-      <div class=\"row\"><label>{workload_enable_label}</label><div><input name=\"docker_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('docker_polling_enabled', True) else ''}><div class=\"hint\">{workload_enable_hint}</div></div></div>
-      <div class=\"row\"><label>{workload_source_label}</label><div>{workload_source_control}<div class=\"hint\">{workload_source_hint}</div></div></div>
-      <div class=\"row\"><label>{workload_interval_label}</label><div><input name=\"docker_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('docker_interval', 2.0)))}\"><div class=\"hint\">{workload_interval_hint}</div></div></div>
-      </div></details>
-      <details class=\"section\" data-section-key=\"virtual_machines\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-monitor-multiple\"></span></span>{vm_section_title}</summary><div class=\"section-body\">
-      <div class=\"row\"><label>{vm_enable_label}</label><div><input name=\"vm_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('vm_polling_enabled', True) else ''}><div class=\"hint\">{vm_enable_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_binary_label}</label><div>{vm_binary_control}<div class=\"hint\">{vm_binary_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_uri_label}</label><div>{vm_uri_control}<div class=\"hint\">{vm_uri_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_interval_label}</label><div><input name=\"vm_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('vm_interval', 5.0)))}\"><div class=\"hint\">{vm_interval_hint}</div></div></div>
-      </div></details>
+      {_render_integration_setup_section(cfg, "host", homeassistant_mode)}
+      {_render_integration_setup_section(cfg, "docker", homeassistant_mode)}
+      {_render_integration_setup_section(cfg, "vms", homeassistant_mode)}
       <details class=\"section\" data-section-key=\"power_commands\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-power\"></span></span>Power Commands</summary><div class=\"section-body\">
       {power_commands_body}
       </div></details>
       <details class=\"section\" data-section-key=\"direct_webui_security\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-lock-outline\"></span></span>Direct Web UI Security</summary><div class=\"section-body\">
       <div class=\"row\"><label>Protect Direct Web UI</label><div><input name=\"webui_auth_enabled\" type=\"checkbox\" {'checked' if cfg.get('webui_auth_enabled') else ''}><div class=\"hint\">Requires a password for direct Web UI access.</div></div></div>
-      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\"><div class=\"hint\">Leave blank to keep the current password. Disable protection to remove it.</div></div></div>
+      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"{html.escape(saved_webui_password_placeholder)}\"><div class=\"hint\">{webui_password_hint}</div></div></div>
       </div></details>
       <div class=\"actions form-actions-sticky\">
         <button type=\"submit\">Save + Restart</button>
@@ -572,15 +941,7 @@ def create_app(
         <div class="hero-art" aria-hidden="true"><span class="mdi mdi-chart-timeline-variant"></span></div>
       </div>
     </div>
-    <div class="metrics-grid" id="metricsPreview">
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-cpu-64-bit"></span></span>CPU</div><div class="metric-value" id="mCPU">Waiting...</div><div class="metric-sub">Usage</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-memory"></span></span>Memory</div><div class="metric-value" id="mMEM">Waiting...</div><div class="metric-sub">Used</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-thermometer"></span></span>CPU Temp</div><div class="metric-value" id="mTEMP">Waiting...</div><div class="metric-sub">Sensor</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network</div><div class="metric-value" id="mNET">Waiting...</div><div class="metric-sub">RX / TX</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-harddisk"></span></span>Disk</div><div class="metric-value" id="mDISK">Waiting...</div><div class="metric-sub">Temp / Usage</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-docker"></span></span>Docker</div><div class="metric-value" id="mDOCKER">Waiting...</div><div class="metric-sub">Run / Stop / Unh</div></div>
-      <div class="metric-card"><div class="metric-label"><span class="metric-icon" aria-hidden="true"><span class="mdi mdi-monitor-multiple"></span></span>VMs</div><div class="metric-value" id="mVMS">Waiting...</div><div class="metric-sub">Run / Pause / Stop</div></div>
-    </div>
+    <div class="metrics-grid" id="metricsPreview">{_render_preview_cards(preview_cards)}</div>
     <details class="section" data-section-key="comm_logs_control"><summary><span class="section-icon" aria-hidden="true"><span class="mdi mdi-transit-connection-variant"></span></span>Bridge Logs</summary><div class="section-body">
     <div class="actions" style="margin: 0 0 12px;">
       <button id="clearCommLogsBtn" class="secondary" type="button">Clear Bridge Logs</button>
@@ -607,241 +968,32 @@ def create_app(
       <div class="dashboard-title">Dashboard</div>
       <div class="dashboard-subtitle">Live host telemetry, bridge health, and ESP preview</div>
     </div>
-    <div class="summary-bar" id="monitorSummaryBar">
-      <div class="summary-chip"><div class="k">Agent</div><div class="v" id="sumAgent">--</div></div>
-      <div class="summary-chip"><div class="k">Serial / Workloads</div><div class="v" id="sumDocker">--</div></div>
-      <div class="summary-chip"><div class="k">Last Telemetry</div><div class="v" id="sumAge">--</div></div>
-      <div class="summary-chip"><div class="k">Host Power</div><div class="v" id="sumPower">--</div></div>
-    </div>
+    <div class="summary-bar" id="monitorSummaryBar">{_render_summary_bar(summary_bar)}</div>
     <div class="monitor-grid">
       <section class="mgroup span6">
         <h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-cellphone-cog"></span></span>ESP Screen Preview</h3>
         <div class="esp-preview-wrap">
-          <div class="esp-preview-toolbar">
-            <div class="esp-preview-tabs" id="espPreviewTabs">
-              <button class="secondary" type="button" data-esp-page="home"><span class="mdi mdi-home-outline" aria-hidden="true"></span>Home</button>
-              <button class="secondary" type="button" data-esp-page="docker"><span class="mdi mdi-docker" aria-hidden="true"></span>Docker</button>
-              <button class="secondary" type="button" data-esp-page="settings_1"><span class="mdi mdi-brightness-6" aria-hidden="true"></span>Settings 1</button>
-              <button class="secondary" type="button" data-esp-page="settings_2"><span class="mdi mdi-power" aria-hidden="true"></span>Settings 2</button>
-              <button class="secondary" type="button" data-esp-page="info_1"><span class="mdi mdi-access-point-network" aria-hidden="true"></span>Network</button>
-              <button class="secondary" type="button" data-esp-page="info_2"><span class="mdi mdi-monitor-dashboard" aria-hidden="true"></span>System</button>
-              <button class="secondary" type="button" data-esp-page="info_3"><span class="mdi mdi-thermometer" aria-hidden="true"></span>CPU Temp</button>
-              <button class="secondary" type="button" data-esp-page="info_4"><span class="mdi mdi-harddisk" aria-hidden="true"></span>Disk Temp</button>
-              <button class="secondary" type="button" data-esp-page="info_5"><span class="mdi mdi-chart-donut" aria-hidden="true"></span>Disk Usage</button>
-              <button class="secondary" type="button" data-esp-page="info_6"><span class="mdi mdi-graph-line" aria-hidden="true"></span>GPU</button>
-              <button class="secondary" type="button" data-esp-page="info_7"><span class="mdi mdi-timer-outline" aria-hidden="true"></span>Uptime</button>
-              <button class="secondary" type="button" data-esp-page="info_8"><span class="mdi mdi-card-text-outline" aria-hidden="true"></span>Host Name</button>
-              <button class="secondary" type="button" data-esp-page="vms"><span class="mdi mdi-monitor-multiple" aria-hidden="true"></span>VMS</button>
-            </div>
+            <div class="esp-preview-toolbar">
+            <div class="esp-preview-tabs" id="espPreviewTabs">{_render_preview_tabs(preview_ui)}</div>
           </div>
           <div class="esp-shell">
             <div class="esp-viewport" id="espPreviewViewport">
               <div class="esp-display-stage" id="espPreviewStage">
                 <div class="esp-screen home-mode" id="espPreviewScreen" tabindex="0">
                   <div class="esp-top" id="espPreviewTop">
-                    <div class="esp-top-title" id="espTopTitle">HOME</div>
+                    <div class="esp-top-title" id="espTopTitle">{html.escape(str(preview_home.get('title') or 'HOME'))}</div>
                     <div class="esp-top-pills" id="espTopPills"></div>
                     <div class="esp-page-indicator" id="espPageIndicator" aria-hidden="true"></div>
                   </div>
-                  <div class="esp-page active" id="espPageHome">
-                    <div class="esp-home-full">
-                      <div class="esp-home-canvas">
-                      <div class="esp-home-cross-v top"></div>
-                      <div class="esp-home-cross-v bottom"></div>
-                      <div class="esp-home-cross-h left"></div>
-                      <div class="esp-home-cross-h right"></div>
-                      <div class="esp-home-ring"></div>
-                      <div class="esp-home-btn tl" data-esp-nav="docker" title="Docker"><span class="mdi mdi-docker"></span></div>
-                      <div class="esp-home-btn tr" data-esp-nav="vms" title="VMS"><span class="mdi mdi-monitor-multiple"></span></div>
-                      <div class="esp-home-btn bl" data-esp-nav="info_1" title="Info"><span class="mdi mdi-information-outline"></span></div>
-                      <div class="esp-home-btn br" data-esp-nav="settings_1" title="Settings"><span class="mdi mdi-cog-outline"></span></div>
-                      <div class="esp-home-center" title="Screen Saver"><span class="mdi mdi-database-outline"></span></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="esp-page" id="espPageInfo1">
-                <div class="esp-dualmetric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-dualmetric-card">
-                    <div class="esp-dualmetric-stats">
-                      <div class="esp-dualmetric-dot left"></div>
-                      <div class="esp-dualmetric-lbl left">RX</div>
-                      <div class="esp-dualmetric-val left" id="espNetRxVal">--</div>
-                      <div class="esp-dualmetric-unit left">MB/s</div>
-                      <div class="esp-dualmetric-dot right"></div>
-                      <div class="esp-dualmetric-lbl right">TX</div>
-                      <div class="esp-dualmetric-val right" id="espNetTxVal">--</div>
-                      <div class="esp-dualmetric-unit right">MB/s</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espNetGraph"></div>
-                      <div class="esp-sys-loading" id="espNetLoading">Loading...</div>
-                      <div class="esp-sys-scale" id="espNetScale">1 MB/s</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo2">
-                <div class="esp-sys-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-sys-card">
-                    <div class="esp-sys-stats">
-                      <div class="esp-sys-dot cpu"></div>
-                      <div class="esp-sys-t" style="left:42px; top:12px;">CPU</div>
-                      <div class="esp-sys-v" id="espSysCpuVal" style="left:42px; top:22px;">--</div>
-                      <div class="esp-sys-u cpu">%</div>
-                      <div class="esp-sys-dot mem"></div>
-                      <div class="esp-sys-t" style="left:226px; top:12px;">MEMORY</div>
-                      <div class="esp-sys-v mem" id="espSysMemVal" style="left:226px; top:22px;">--</div>
-                      <div class="esp-sys-u mem">%</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espSysGraph"></div>
-                      <div class="esp-sys-loading" id="espSysLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageDocker">
-                <div class="esp-workload-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-workload-list" id="espDockerRows"></div>
-                  <div class="esp-workload-empty" id="espDockerEmpty" hidden>
-                    <div class="esp-workload-empty-icon"><span class="mdi mdi-docker"></span></div>
-                    <div class="esp-workload-empty-title"></div>
-                    <div class="esp-workload-empty-subtitle"></div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageVms">
-                <div class="esp-workload-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-workload-list" id="espVmsRows"></div>
-                  <div class="esp-workload-empty" id="espVmsEmpty" hidden>
-                    <div class="esp-workload-empty-icon"><span class="mdi mdi-monitor-multiple"></span></div>
-                    <div class="esp-workload-empty-title"></div>
-                    <div class="esp-workload-empty-subtitle"></div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo3">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot"></div>
-                      <div class="esp-metric-title">CPU TEMP</div>
-                      <div class="esp-metric-value" id="espCpuTempVal">--</div>
-                      <div class="esp-metric-unit">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espCpuTempGraph"></div>
-                      <div class="esp-sys-loading" id="espCpuTempLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo4">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot violet"></div>
-                      <div class="esp-metric-title">DISK TEMP</div>
-                      <div class="esp-metric-value violet" id="espDiskTempVal">--</div>
-                      <div class="esp-metric-unit">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espDiskTempGraph"></div>
-                      <div class="esp-sys-loading" id="espDiskTempLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo5">
-                <div class="esp-metric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-metric-card">
-                    <div class="esp-metric-stats">
-                      <div class="esp-metric-dot"></div>
-                      <div class="esp-metric-title">DISK USAGE</div>
-                      <div class="esp-metric-value" id="espDiskUsageVal">--</div>
-                      <div class="esp-metric-unit">%</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espDiskUsageGraph"></div>
-                      <div class="esp-sys-loading" id="espDiskUsageLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo6">
-                <div class="esp-dualmetric-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-dualmetric-card">
-                    <div class="esp-dualmetric-stats">
-                      <div class="esp-dualmetric-dot left"></div>
-                      <div class="esp-dualmetric-lbl left">GPU</div>
-                      <div class="esp-dualmetric-val left" id="espGpuUtilVal">--</div>
-                      <div class="esp-dualmetric-unit left">%</div>
-                      <div class="esp-dualmetric-dot right"></div>
-                      <div class="esp-dualmetric-lbl right">TEMP</div>
-                      <div class="esp-dualmetric-val right" id="espGpuTempVal">--</div>
-                      <div class="esp-dualmetric-unit right">°C</div>
-                    </div>
-                    <div class="esp-sys-chartbox">
-                      <div id="espGpuGraph"></div>
-                      <div class="esp-sys-loading" id="espGpuLoading">Loading...</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo7">
-                <div class="esp-uptime-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-uptime-card">
-                    <div class="esp-uptime-status" id="espUptimeStatus"></div>
-                    <div class="esp-uptime-value" id="espUptimeVal">--</div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageInfo8">
-                <div class="esp-hostname-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-hostname-card">
-                    <div class="esp-hostname-value" id="espHostNameVal">Waiting for host...</div>
-                  </div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageSettings1">
-                <div class="esp-settings1-page">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-settings1-label">Screen Brightness</div>
-                  <div class="esp-settings1-slider">
-                    <div class="esp-settings1-track">
-                      <div class="esp-settings1-fill" id="espBrightnessFill"></div>
-                      <div class="esp-settings1-knob" id="espBrightnessKnob"></div>
-                    </div>
-                  </div>
-                  <div class="esp-settings1-value" id="espBrightnessVal">255</div>
-                </div>
-              </div>
-                <div class="esp-page" id="espPageSettings2">
-                <div class="esp-power-exact">
-                  <div class="esp-page-hint"></div>
-                  <div class="esp-power-status" id="espPowerStatusExact" hidden></div>
-                  <div class="esp-power-btn shutdown">Shutdown</div>
-                  <div class="esp-power-btn restart">Restart</div>
-                </div>
-              </div>
+                  {_render_preview_pages(preview_ui)}
                 <div class="esp-preview-modal" id="espDockerModal" hidden>
                 <div class="esp-preview-modal-card">
                   <div class="esp-preview-modal-header">
                     <div class="esp-preview-modal-heading">
-                      <span class="mdi mdi-docker"></span>
+                      <span class="mdi {html.escape(str(docker_modal.get('icon_class') or 'mdi-docker'))}"></span>
                       <div>
-                        <div class="esp-preview-modal-title">Docker</div>
-                        <div class="esp-preview-modal-subtitle">Container control</div>
+                        <div class="esp-preview-modal-title">{html.escape(str(docker_modal.get('title') or 'Docker'))}</div>
+                        <div class="esp-preview-modal-subtitle">{html.escape(str(docker_modal.get('subtitle') or 'Container control'))}</div>
                       </div>
                     </div>
                     <button class="esp-preview-modal-close" type="button" data-esp-modal-close="docker" aria-label="Close Docker preview">
@@ -853,9 +1005,8 @@ def create_app(
                     <div class="esp-state-pill other esp-preview-modal-status" id="espDockerModalStatus"></div>
                     <div class="esp-preview-modal-detail" id="espDockerModalDetail"></div>
                   </div>
-                  <div class="esp-preview-modal-footer">
-                    <button class="esp-modal-action start" type="button" data-esp-docker-action="start">Start</button>
-                    <button class="esp-modal-action stop" type="button" data-esp-docker-action="stop">Stop</button>
+                  <div class="esp-preview-modal-footer" id="espDockerModalActions">
+                    {_render_preview_action_buttons(preview_action_groups, "docker")}
                   </div>
                 </div>
               </div>
@@ -863,10 +1014,10 @@ def create_app(
                 <div class="esp-preview-modal-card">
                   <div class="esp-preview-modal-header">
                     <div class="esp-preview-modal-heading">
-                      <span class="mdi mdi-monitor-multiple"></span>
+                      <span class="mdi {html.escape(str(vms_modal.get('icon_class') or 'mdi-monitor-multiple'))}"></span>
                       <div>
-                        <div class="esp-preview-modal-title">VMS</div>
-                        <div class="esp-preview-modal-subtitle">Virtual machine control</div>
+                        <div class="esp-preview-modal-title">{html.escape(str(vms_modal.get('title') or 'VMS'))}</div>
+                        <div class="esp-preview-modal-subtitle">{html.escape(str(vms_modal.get('subtitle') or 'Virtual machine control'))}</div>
                       </div>
                     </div>
                     <button class="esp-preview-modal-close" type="button" data-esp-modal-close="vms" aria-label="Close VM preview">
@@ -878,45 +1029,38 @@ def create_app(
                     <div class="esp-state-pill other esp-preview-modal-status" id="espVmsModalStatus"></div>
                     <div class="esp-preview-modal-detail" id="espVmsModalDetail"></div>
                   </div>
-                  <div class="esp-preview-modal-footer">
-                    <button class="esp-modal-action start" type="button" data-esp-vms-action="start">Start</button>
-                    <button class="esp-modal-action stop" type="button" data-esp-vms-action="stop">Stop</button>
-                    <button class="esp-modal-action restart" type="button" data-esp-vms-action="restart">Restart</button>
+                  <div class="esp-preview-modal-footer" id="espVmsModalActions">
+                    {_render_preview_action_buttons(preview_action_groups, "vms")}
                   </div>
-                  <div class="esp-preview-modal-footnote">Hold Stop on the device for force off</div>
+                  <div class="esp-preview-modal-footnote" id="espVmsModalFootnote">{_render_preview_action_footnote(preview_action_groups, "vms")}</div>
                 </div>
                 </div>
               </div>
               </div>
             </div>
           </div>
-          <div class="esp-preview-meta"><span id="espFooterPage">Preview • HOME</span><span id="espFooterPort">Port: --</span></div>
+          <div class="esp-preview-meta"><span id="espFooterPage">Preview • {html.escape(str(preview_home.get('footer') or 'HOME'))}</span><span id="espFooterPort">Port: --</span></div>
           <div class="monitor-note">Interactive browser simulator driven by live bridge telemetry. Swipe in the preview, click HOME quadrants, or long-press Docker and VM rows for actions.</div>
         </div>
       </section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-chart-box-outline"></span></span>System</h3><div class="mgroup-grid">
-        <div class="mcard" id="mcCPU"><div class="metric-label">CPU Usage</div><div class="metric-value" id="mvCPU">--</div><div class="metric-sub" id="msCPU"></div><svg id="sparkCPU"></svg></div>
-        <div class="mcard" id="mcMEM"><div class="metric-label">Memory Usage</div><div class="metric-value" id="mvMEM">--</div><div class="metric-sub" id="msMEM"></div><svg id="sparkMEM"></svg></div>
-        <div class="mcard" id="mcTEMP"><div class="metric-label">CPU Temperature</div><div class="metric-value" id="mvTEMP">--</div><div class="metric-sub" id="msTEMP"></div><svg id="sparkTEMP"></svg></div>
-        <div class="mcard" id="mcUP"><div class="metric-label">Uptime</div><div class="metric-value" id="mvUP">--</div><div class="metric-sub" id="msUP"></div><svg id="sparkUP"></svg></div>
-      </div></section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-lan"></span></span>Network & Storage</h3><div class="mgroup-grid">
-        <div class="mcard" id="mcNET"><div class="metric-label">Network RX / TX</div><div class="metric-value" id="mvNET">--</div><div class="metric-sub" id="msNET">kbps</div><svg id="sparkNET"></svg></div>
-        <div class="mcard" id="mcDISKIO"><div class="metric-label">Disk Read / Write</div><div class="metric-value" id="mvDISKIO">--</div><div class="metric-sub" id="msDISKIO">kB/s</div><svg id="sparkDISKIO"></svg></div>
-        <div class="mcard" id="mcDISKTEMP"><div class="metric-label">Disk Temperature</div><div class="metric-value" id="mvDISK">--</div><div class="metric-sub" id="msDISK"></div><svg id="sparkDISK"></svg></div>
-        <div class="mcard" id="mcDISKPCT"><div class="metric-label">Disk Usage</div><div class="metric-value" id="mvDISKPCT">--</div><div class="metric-sub" id="msDISKPCT"></div><svg id="sparkDISKPCT"></svg></div>
-      </div></section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-fan"></span></span>Cooling & GPU</h3><div class="mgroup-grid">
-        <div class="mcard" id="mcFAN"><div class="metric-label">Fan RPM</div><div class="metric-value" id="mvFAN">--</div><div class="metric-sub" id="msFAN"></div><svg id="sparkFAN"></svg></div>
-        <div class="mcard" id="mcGPUU"><div class="metric-label">GPU Utilization</div><div class="metric-value" id="mvGPUU">--</div><div class="metric-sub" id="msGPUU"></div><svg id="sparkGPUU"></svg></div>
-        <div class="mcard" id="mcGPUT"><div class="metric-label">GPU Temperature</div><div class="metric-value" id="mvGPUT">--</div><div class="metric-sub" id="msGPUT"></div><svg id="sparkGPUT"></svg></div>
-        <div class="mcard" id="mcGPUVM"><div class="metric-label">GPU VRAM</div><div class="metric-value" id="mvGPUVM">--</div><div class="metric-sub" id="msGPUVM"></div><svg id="sparkGPUVM"></svg></div>
-      </div></section>
-      <section class="mgroup span6"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-apps"></span></span>Workloads</h3><div class="mgroup-grid">
-        <div class="mcard"><div class="metric-label">{workload_summary_label}</div><div class="metric-value" id="mvDockerCounts">--</div><div class="metric-sub" id="msDockerCounts">{workload_summary_sub}</div></div>
-        <div class="mcard"><div class="metric-label">{vm_summary_label}</div><div class="metric-value" id="mvVmCounts">--</div><div class="metric-sub" id="msVmCounts">{vm_summary_sub}</div></div>
-        <div class="mcard"><div class="metric-label">{workload_list_label}</div><div class="metric-sub" id="dockerMoreHint">{workload_waiting_text}</div><ul class="docker-list" id="dockerPreviewList"></ul><details><summary class="monitor-note">{workload_show_all}</summary><ul class="docker-list" id="dockerAllList"></ul></details></div>
-        <div class="mcard"><div class="metric-label">{vm_list_label}</div><div class="metric-sub" id="vmMoreHint">{vm_waiting_text}</div><ul class="docker-list" id="vmPreviewList"></ul><details><summary class="monitor-note">{vm_show_all}</summary><ul class="docker-list" id="vmAllList"></ul></details></div>
+      <div id="monitorDashboardSections">{_render_monitor_dashboard_sections(monitor_dashboard)}</div>
+      <div id="monitorDetailSections">{_render_monitor_detail_sections(monitor_details)}</div>
+      <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-puzzle-outline"></span></span>Integration Health</h3><div class="mgroup-grid">
+        <div class="mcard">
+          <div class="metric-label">Integrations</div>
+          <div class="integration-dashboard-cards" id="integrationDashboardCards">
+            <div class="monitor-note">Waiting for integration metadata...</div>
+          </div>
+          <div class="integration-health-chips" id="integrationHealthChips"></div>
+          <div class="integration-health-list" id="integrationHealthList">
+            <div class="monitor-note">Waiting for integration health...</div>
+          </div>
+        </div>
+        <div class="mcard">
+          <div class="metric-label">Command Registry</div>
+          <div class="metric-sub" id="commandRegistryHint">Waiting for command registry...</div>
+          <div class="command-registry-list" id="commandRegistryList"></div>
+        </div>
       </div></section>
     </div>
   </div>
@@ -925,6 +1069,7 @@ def create_app(
 window.__HOST_METRICS_BOOT__ = {{
   nextLogId: {st['next_log_id']},
   nextCommLogId: {st.get('next_comm_log_id', 1)},
+  preview_ui: {json.dumps(preview_ui)},
 }};
 </script>
 <script src="/static/host/host_ui.js"></script>
@@ -935,6 +1080,7 @@ window.__HOST_METRICS_BOOT__ = {{
     def save() -> Any:
         cfg = cfg_from_form(request.form)
         existing_cfg = load_cfg(cfg_path)
+        cfg = preserve_secret_fields(cfg, existing_cfg)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         auth_enabled = _clean_bool(cfg.get("webui_auth_enabled"), False)
@@ -980,11 +1126,16 @@ window.__HOST_METRICS_BOOT__ = {{
 
     @app.get("/api/status")
     def api_status() -> Any:
-        return jsonify(pub.status())
+        status = build_browser_status_payload(
+            pub.status(),
+            homeassistant_mode=is_home_assistant_app_mode(),
+            redact_mask=REDACTED_SECRET_TEXT,
+        )
+        return jsonify(status)
 
     @app.get("/api/config")
     def api_config() -> Any:
-        return jsonify(load_cfg(cfg_path))
+        return jsonify(redact_cfg(load_cfg(cfg_path), REDACTED_SECRET_TEXT))
 
     @app.get("/api/ports")
     def api_ports() -> Any:
@@ -1009,7 +1160,7 @@ window.__HOST_METRICS_BOOT__ = {{
     if not is_home_assistant_app_mode():
         @app.get("/api/host-power-defaults")
         def api_host_power_defaults() -> Any:
-            return jsonify(detect_host_power_command_defaults())
+            return jsonify(build_host_power_command_defaults())
 
         @app.post("/api/host-power-preview")
         def api_host_power_preview() -> Any:
@@ -1019,26 +1170,15 @@ window.__HOST_METRICS_BOOT__ = {{
             use_sudo = _clean_bool(payload.get("host_cmd_use_sudo"), False)
             shutdown_cmd = _clean_str(payload.get("shutdown_cmd"), "")
             restart_cmd = _clean_str(payload.get("restart_cmd"), "")
-
-            def _preview(cmd_name: str) -> Dict[str, Any]:
-                argv, err = resolve_host_command_argv(
-                    cmd_name,
-                    use_sudo=use_sudo,
-                    shutdown_cmd=shutdown_cmd,
-                    restart_cmd=restart_cmd,
-                )
-                if argv is None:
-                    return {"ok": False, "command": "", "message": err or "not available"}
-                return {
-                    "ok": True,
-                    "command": " ".join(shlex.quote(x) for x in argv),
-                    "message": "ok",
+            return jsonify(
+                {
+                    "items": build_host_power_command_previews(
+                        use_sudo=use_sudo,
+                        shutdown_cmd=shutdown_cmd,
+                        restart_cmd=restart_cmd,
+                    )
                 }
-
-            return jsonify({
-                "shutdown": _preview("shutdown"),
-                "restart": _preview("restart"),
-            })
+            )
 
     @app.get("/api/logs")
     def api_logs() -> Any:
@@ -1096,6 +1236,7 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
+        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)
@@ -1116,6 +1257,7 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
+        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)

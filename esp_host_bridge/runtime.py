@@ -6,7 +6,6 @@ import atexit
 import copy
 import difflib
 import html
-import http.client
 import json
 import logging
 import os
@@ -22,7 +21,6 @@ import sys
 import threading
 import time
 import asyncio
-import urllib.parse
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
@@ -56,8 +54,7 @@ RX_BUFFER_KEEP_BYTES = 1024
 DISK_TEMP_REFRESH_SECONDS = 15.0
 DISK_USAGE_REFRESH_SECONDS = 10.0
 SLOW_SENSOR_REFRESH_SECONDS = 5.0
-DOCKER_WARN_INTERVAL_SECONDS = 30.0
-VIRSH_WARN_INTERVAL_SECONDS = 30.0
+INTEGRATION_HEALTH_LOG_MIN_INTERVAL_SECONDS = 30.0
 MAX_LOG_LINES = 800
 METRIC_HISTORY_POINTS = 90
 WEBUI_DEFAULT_PORT = 8654
@@ -133,8 +130,6 @@ class RuntimeState:
     prev_rx: Optional[float] = None
     prev_tx: Optional[float] = None
     prev_t: Optional[float] = None
-    last_docker_warn_ts: float = 0.0
-    last_virsh_warn_ts: float = 0.0
     disk_temp_c: float = 0.0
     disk_temp_available: bool = False
     last_disk_temp_ts: float = 0.0
@@ -152,22 +147,16 @@ class RuntimeState:
     prev_disk_write_b: Optional[float] = None
     rx_buf: str = ""
     tx_frame_index: int = 0
-    cached_docker: list[dict[str, Any]] = field(default_factory=list)
-    cached_docker_counts: Dict[str, int] = field(
-        default_factory=lambda: {"running": 0, "stopped": 0, "unhealthy": 0}
-    )
-    last_docker_refresh_ts: float = 0.0
-    cached_vms: list[dict[str, Any]] = field(default_factory=list)
-    cached_vm_counts: Dict[str, int] = field(
-        default_factory=lambda: {"running": 0, "stopped": 0, "paused": 0, "other": 0}
-    )
-    last_vm_refresh_ts: float = 0.0
     host_name_sent: bool = False
     ha_token_present: bool = False
     ha_addons_api_ok: Optional[bool] = None
     ha_integrations_api_ok: Optional[bool] = None
     display_sleeping: bool = False
     display_refresh_pending: bool = False
+    integration_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    integration_health: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    last_integration_health_payload: str = ""
+    last_integration_health_emit_ts: float = 0.0
 
 
 def safe_float(v: Any, default: Optional[float] = 0.0) -> Optional[float]:
@@ -242,61 +231,17 @@ def _humanize_home_assistant_slug(value: Any) -> str:
     return " ".join(part.upper() if len(part) <= 4 else part.capitalize() for part in parts)
 
 
-def compact_containers(docker_data: list[dict[str, Any]], max_items: int = 10) -> str:
-    out: list[str] = []
-    for c in docker_data[:max_items]:
-        if not isinstance(c, dict):
-            continue
-        raw_name = c.get("name") or c.get("Names") or "container"
-        if isinstance(raw_name, list):
-            name = str(raw_name[0] if raw_name else "container")
-        else:
-            name = str(raw_name)
-        name = name.lstrip("/").replace(",", "_").replace(";", "_")
-        if len(name) > 24:
-            name = name[:24]
-        status_raw = str(c.get("status") or c.get("State") or "").lower()
-        state = "up" if any(x in status_raw for x in ["running", "up", "healthy"]) else "down"
-        out.append(f"{name}|{state}")
-    return ";".join(out)
-
-
-def _sanitize_compact_token(v: Any, fallback: str = "") -> str:
-    s = str(v or fallback).strip()
-    if not s:
-        s = fallback
-    return s.replace(",", "_").replace(";", "_").replace("|", "_")
-
-
 def classify_vm_state(state_raw: Any) -> tuple[str, str]:
-    s = str(state_raw or "").strip().lower()
-    if not s:
+    text = str(state_raw or "").strip().lower()
+    if not text:
         return "stopped", "Stopped"
-    if any(x in s for x in ("running", "idle", "in shutdown", "shutdown", "no state")):
+    if any(token in text for token in ("running", "idle", "in shutdown", "shutdown", "no state")):
         return "running", "Running"
-    if any(x in s for x in ("paused", "pmsuspended", "suspended", "blocked")):
+    if any(token in text for token in ("paused", "pmsuspended", "suspended", "blocked")):
         return "paused", "Paused"
-    if any(x in s for x in ("shut off", "shutoff", "crashed")):
+    if any(token in text for token in ("shut off", "shutoff", "crashed")):
         return "stopped", "Stopped"
-    return "other", s.title()
-
-
-def compact_virtual_machines(vm_data: list[dict[str, Any]], max_items: int = 10) -> str:
-    out: list[str] = []
-    for vm in vm_data[:max_items]:
-        if not isinstance(vm, dict):
-            continue
-        name = _sanitize_compact_token(vm.get("name"), "vm")
-        if len(name) > 24:
-            name = name[:24]
-        state_key, state_label = classify_vm_state(vm.get("state"))
-        vcpus = max(0, safe_int(vm.get("vcpus"), 0) or 0)
-        mem_mib = max(0, safe_int(vm.get("max_mem_mib"), 0) or 0)
-        out.append(
-            f"{name}|{_sanitize_compact_token(state_key, 'stopped')}|"
-            f"{vcpus}|{mem_mib}|{_sanitize_compact_token(state_label, 'Stopped')}"
-        )
-    return ";".join(out) if out else "-"
+    return "other", text.title()
 
 
 def _supervisor_request_json(path: str, timeout: float, method: str = "GET", payload: Any = None) -> Any:
@@ -321,27 +266,25 @@ def _supervisor_request_json(path: str, timeout: float, method: str = "GET", pay
 
 
 from .config import cfg_to_agent_args, load_cfg, validate_cfg
-from .metrics import (
-    _run_command_capture,
-    _virsh_uri_candidates,
-    detect_hardware_choices,
-    docker_summary_counts,
-    get_cpu_percent,
-    get_cpu_temp_c,
-    get_disk_bytes_local,
-    get_disk_temp_c,
-    get_disk_usage_pct,
-    get_docker_containers_from_engine,
-    get_fan_rpm,
-    get_gpu_metrics,
-    get_home_assistant_addons,
-    get_home_assistant_integrations,
-    get_mem_percent,
-    get_net_bytes_local,
-    get_uptime_seconds,
-    get_virtual_machines_from_virsh,
-    normalize_docker_data,
-    vm_summary_counts,
+from .integrations import (
+    CommandContext,
+    PollContext,
+    command_registry_snapshot,
+    dispatch_integration_command,
+    get_registered_commands,
+    integration_dashboard_snapshot,
+    integration_health_snapshot,
+    integration_overview_snapshot,
+    match_registered_command,
+    monitor_dashboard_snapshot,
+    monitor_detail_payload_snapshot,
+    monitor_detail_snapshot,
+    poll_integrations,
+    preview_action_groups_snapshot,
+    preview_cards_snapshot,
+    preview_ui_snapshot,
+    redact_agent_command_args,
+    summary_bar_snapshot,
 )
 from .serial import serial_io_bypassed, try_open_serial_once
 
@@ -373,6 +316,35 @@ def detect_host_power_command_defaults() -> Dict[str, str]:
             "restart_cmd": "shutdown /r /t 0",
         }
     return {"os": system or "unknown", "shutdown_cmd": "", "restart_cmd": ""}
+
+
+def build_host_power_command_defaults() -> Dict[str, Any]:
+    defaults = detect_host_power_command_defaults()
+    runtime_cmd_by_id = {
+        "host_shutdown": ("shutdown", defaults.get("shutdown_cmd", "")),
+        "host_restart": ("restart", defaults.get("restart_cmd", "")),
+    }
+    items: list[Dict[str, Any]] = []
+    for spec in get_registered_commands():
+        if spec.owner_id != "host":
+            continue
+        runtime_cmd, default_command = runtime_cmd_by_id.get(spec.command_id, ("", ""))
+        items.append(
+            {
+                "command_id": spec.command_id,
+                "label": spec.label,
+                "trigger": spec.patterns[0] if spec.patterns else runtime_cmd,
+                "default_command": default_command,
+                "destructive": bool(spec.destructive),
+                "confirmation_text": spec.confirmation_text or None,
+            }
+        )
+    return {
+        "os": defaults.get("os", "unknown"),
+        "shutdown_cmd": defaults.get("shutdown_cmd", ""),
+        "restart_cmd": defaults.get("restart_cmd", ""),
+        "items": items,
+    }
 
 def resolve_host_command_argv(
     cmd: str,
@@ -422,6 +394,48 @@ def resolve_host_command_argv(
         argv = ["sudo"] + argv
     return argv, None
 
+
+def build_host_power_command_previews(
+    *,
+    use_sudo: bool = False,
+    shutdown_cmd: Optional[str] = None,
+    restart_cmd: Optional[str] = None,
+) -> list[Dict[str, Any]]:
+    runtime_cmd_by_id = {
+        "host_shutdown": "shutdown",
+        "host_restart": "restart",
+    }
+    out: list[Dict[str, Any]] = []
+    for spec in get_registered_commands():
+        if spec.owner_id != "host":
+            continue
+        runtime_cmd = runtime_cmd_by_id.get(spec.command_id)
+        if not runtime_cmd:
+            continue
+        argv, err = resolve_host_command_argv(
+            runtime_cmd,
+            use_sudo=use_sudo,
+            shutdown_cmd=shutdown_cmd,
+            restart_cmd=restart_cmd,
+        )
+        row: Dict[str, Any] = {
+            "command_id": spec.command_id,
+            "label": spec.label,
+            "trigger": spec.patterns[0] if spec.patterns else runtime_cmd,
+            "destructive": bool(spec.destructive),
+            "confirmation_text": spec.confirmation_text or None,
+        }
+        if argv is None:
+            row["ok"] = False
+            row["command"] = ""
+            row["message"] = err or "not available"
+        else:
+            row["ok"] = True
+            row["command"] = " ".join(shlex.quote(x) for x in argv)
+            row["message"] = "ok"
+        out.append(row)
+    return out
+
 def execute_host_command(
     cmd: str,
     use_sudo: bool = False,
@@ -461,140 +475,6 @@ def execute_home_assistant_host_power_command(cmd: str, timeout: float) -> bool:
         logging.info("home assistant host power command requested: %s via %s", cmd_s.lower(), path)
     except Exception as e:
         logging.warning("home assistant host power command failed for %s (%s)", cmd_s, e)
-    return True
-
-def execute_docker_command(cmd: str, socket_path: str, timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("docker_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-    elif cmd_l.startswith("docker_stop:"):
-        action = "stop"
-        target = cmd_s.split(":", 1)[1].strip()
-    else:
-        return False
-
-    if not target:
-        logging.warning("ignoring docker command with empty target (CMD=%s)", cmd_s)
-        return True
-
-    class UnixHTTPConnection(http.client.HTTPConnection):
-        def __init__(self, unix_socket_path: str, timeout_s: float):
-            super().__init__("localhost", timeout=timeout_s)
-            self.unix_socket_path = unix_socket_path
-
-        def connect(self) -> None:
-            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.settimeout(self.timeout)
-            self.sock.connect(self.unix_socket_path)
-
-    encoded = urllib.parse.quote(target, safe="")
-    path = f"/containers/{encoded}/{action}" + ("?t=10" if action == "stop" else "")
-    try:
-        conn = UnixHTTPConnection(socket_path, timeout)
-        conn.request("POST", path)
-        resp = conn.getresponse()
-        body = resp.read()
-        conn.close()
-        if resp.status in (204, 304):
-            logging.info("docker %s requested for %s (HTTP %s)", action, target, resp.status)
-        else:
-            logging.warning(
-                "docker %s failed for %s via %s (HTTP %s: %r)",
-                action,
-                target,
-                socket_path,
-                resp.status,
-                body[:200],
-            )
-    except Exception as e:
-        logging.warning("docker %s failed for %s via %s (%s)", action, target, socket_path, e)
-    return True
-
-def execute_home_assistant_addon_command(cmd: str, timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("docker_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-    elif cmd_l.startswith("docker_stop:"):
-        action = "stop"
-        target = cmd_s.split(":", 1)[1].strip()
-    else:
-        return False
-    if not target:
-        logging.warning("ignoring add-on command with empty target (CMD=%s)", cmd_s)
-        return True
-    addons = get_home_assistant_addons(timeout)
-    target_l = target.lower()
-    match = next(
-        (
-            row for row in addons
-            if str(row.get("name") or "") == target
-            or str(row.get("slug") or "") == target
-            or str(row.get("name") or "").lower().startswith(target_l)
-            or str(row.get("slug") or "").lower().startswith(target_l)
-        ),
-        None,
-    )
-    if not match:
-        logging.warning("home assistant add-on command target not found (%s)", target)
-        return True
-    slug = str(match.get("slug") or "").strip()
-    if not slug:
-        logging.warning("home assistant add-on slug missing for %s", target)
-        return True
-    try:
-        _supervisor_request_json(f"/addons/{urllib.parse.quote(slug, safe='')}/{action}", timeout=timeout, method="POST", payload={})
-        logging.info("home assistant add-on %s requested for %s", action, target)
-    except Exception as e:
-        logging.warning("home assistant add-on %s failed for %s (%s)", action, target, e)
-    return True
-
-def execute_virsh_command(cmd: str, virsh_binary: str, virsh_uri: Optional[str], timeout: float) -> bool:
-    cmd_s = (cmd or "").strip()
-    cmd_l = cmd_s.lower()
-    if cmd_l.startswith("vm_start:"):
-        action = "start"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("start", target)
-    elif cmd_l.startswith("vm_force_stop:"):
-        action = "destroy"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("destroy", target)
-    elif cmd_l.startswith("vm_stop:"):
-        action = "shutdown"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("shutdown", target)
-    elif cmd_l.startswith("vm_restart:"):
-        action = "reboot"
-        target = cmd_s.split(":", 1)[1].strip()
-        parts = ("reboot", target)
-    else:
-        return False
-
-    if not target:
-        logging.warning("ignoring VM command with empty target (CMD=%s)", cmd_s)
-        return True
-
-    errors: list[str] = []
-    for candidate_uri in _virsh_uri_candidates(virsh_uri):
-        argv = _virsh_cmd(virsh_binary, candidate_uri, *parts)
-        try:
-            p = _run_command_capture(argv, timeout)
-            if p.returncode == 0:
-                logging.info("vm %s requested for %s", action, target)
-                return True
-            errors.append((p.stderr or p.stdout or "").strip()[:200])
-        except Exception as e:
-            errors.append(str(e))
-    logging.warning(
-        "vm %s failed for %s (%s)",
-        action,
-        target,
-        "; ".join([e for e in errors if e][:3]) or "unknown error",
-    )
     return True
 
 def command_to_power_state(cmd: str) -> Optional[str]:
@@ -664,14 +544,24 @@ def process_usb_commands(
         if not line.startswith("CMD="):
             continue
         cmd = line.split("=", 1)[1].strip()
+        command_spec = match_registered_command(cmd)
         if handle_display_state_command(cmd, state):
             continue
         if allow_host_cmds:
-            if homeassistant_mode and execute_home_assistant_addon_command(cmd, timeout):
-                continue
-            if execute_docker_command(cmd, docker_socket, timeout):
-                continue
-            if execute_virsh_command(cmd, virsh_binary, virsh_uri, timeout):
+            if dispatch_integration_command(
+                cmd,
+                CommandContext(
+                    args=argparse.Namespace(
+                        docker_socket=docker_socket,
+                        virsh_binary=virsh_binary,
+                        virsh_uri=virsh_uri,
+                    ),
+                    state=state,
+                    timeout=timeout,
+                    homeassistant_mode=homeassistant_mode,
+                    supervisor_request_json=_supervisor_request_json,
+                ),
+            ):
                 continue
             power_state = command_to_power_state(cmd)
             if power_state:
@@ -693,7 +583,10 @@ def process_usb_commands(
                 restart_cmd=restart_cmd,
             )
         else:
-            logging.info("host command received but disabled (CMD=%s)", cmd)
+            if command_spec is not None:
+                logging.info("registered host command received but disabled (CMD=%s, ID=%s)", cmd, command_spec.command_id)
+            else:
+                logging.info("host command received but disabled (CMD=%s)", cmd)
 
     if len(rx_buf) > RX_BUFFER_MAX_BYTES:
         rx_buf = rx_buf[-RX_BUFFER_KEEP_BYTES:]
@@ -702,197 +595,267 @@ def process_usb_commands(
 def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     now = time.time()
     homeassistant_mode = is_home_assistant_app_mode()
+    runtime_snapshot = build_runtime_snapshot(
+        args,
+        state,
+        now=now,
+        homeassistant_mode=homeassistant_mode,
+    )
+    frame = state.tx_frame_index % 5
+    state.tx_frame_index = (state.tx_frame_index + 1) % 5
+    return runtime_snapshot["usb_frames"][frame]
+
+
+def _metric_text(value: Any) -> str:
+    return str(value if value is not None else "")
+
+
+def build_runtime_metric_snapshot(
+    args: argparse.Namespace,
+    state: RuntimeState,
+    integration_status: Dict[str, Dict[str, Any]],
+    *,
+    homeassistant_mode: bool,
+) -> Dict[str, str]:
     state.ha_token_present = bool(SUPERVISOR_TOKEN)
-    cpu_pct, state.cpu_prev_total, state.cpu_prev_idle = get_cpu_percent(state.cpu_prev_total, state.cpu_prev_idle)
-    mem_pct = get_mem_percent()
-    uptime_s = get_uptime_seconds()
-    cpu_temp_sample = get_cpu_temp_c(getattr(args, 'cpu_temp_sensor', None))
-    cpu_temp_available = cpu_temp_sample is not None
-    cpu_temp = float(cpu_temp_sample or 0.0)
-    if (now - state.last_disk_temp_ts) >= DISK_TEMP_REFRESH_SECONDS:
-        disk_temp_sample = get_disk_temp_c(args.timeout, args.disk_temp_device or args.disk_device)
-        state.disk_temp_c = float(disk_temp_sample or 0.0)
-        state.disk_temp_available = disk_temp_sample is not None
-        state.last_disk_temp_ts = now
-    disk_temp_available = bool(getattr(state, "disk_temp_available", False))
-    if (now - state.last_disk_usage_ts) >= DISK_USAGE_REFRESH_SECONDS:
-        state.disk_usage_pct = get_disk_usage_pct(args.disk_device, state.active_disk)
-        state.last_disk_usage_ts = now
-    gpu_enabled = not bool(getattr(args, "disable_gpu_polling", False))
-    if (now - state.last_slow_sensor_ts) >= SLOW_SENSOR_REFRESH_SECONDS:
-        fan_rpm_sample = get_fan_rpm(getattr(args, 'fan_sensor', None))
-        state.fan_rpm = float(fan_rpm_sample or 0.0)
-        state.fan_available = fan_rpm_sample is not None
-        if gpu_enabled:
-            gpu = get_gpu_metrics(args.timeout)
-            state.gpu_temp_c = float(gpu.get('temp_c', 0.0) or 0.0)
-            state.gpu_util_pct = float(gpu.get('util_pct', 0.0) or 0.0)
-            state.gpu_mem_pct = float(gpu.get('mem_pct', 0.0) or 0.0)
-            state.gpu_available = bool(gpu.get('available', False))
-        else:
-            state.gpu_temp_c = 0.0
-            state.gpu_util_pct = 0.0
-            state.gpu_mem_pct = 0.0
-            state.gpu_available = False
-        state.last_slow_sensor_ts = now
-    fan_available = bool(getattr(state, "fan_available", False))
-    gpu_available = bool(getattr(state, "gpu_available", False))
+    state.integration_health = integration_health_snapshot(integration_status)
 
-    docker_enabled = not bool(getattr(args, "disable_docker_polling", False))
-    docker_interval = max(0.0, float(getattr(args, "docker_interval", 2.0) or 0.0))
-    if docker_enabled and docker_interval > 0.0 and (not state.last_docker_refresh_ts or (now - state.last_docker_refresh_ts) >= docker_interval):
-        try:
-            if homeassistant_mode:
-                docker = get_home_assistant_addons(timeout=args.timeout)
-            else:
-                docker = get_docker_containers_from_engine(args.docker_socket, timeout=args.timeout)
-            state.ha_addons_api_ok = True if homeassistant_mode else None
-        except Exception as e:
-            docker = []
-            state.ha_addons_api_ok = False if homeassistant_mode else None
-            if (now - state.last_docker_warn_ts) >= DOCKER_WARN_INTERVAL_SECONDS:
-                if homeassistant_mode:
-                    logging.warning("Home Assistant add-on API unavailable; continuing without add-on data (%s)", e)
-                else:
-                    logging.warning(
-                        "Docker API unavailable via %s; continuing without docker data (%s)",
-                        args.docker_socket,
-                        e,
-                    )
-                state.last_docker_warn_ts = now
-        docker = normalize_docker_data(docker)
-        state.cached_docker = docker
-        state.cached_docker_counts = docker_summary_counts(docker)
-        state.last_docker_refresh_ts = now
-    if docker_enabled:
-        docker = list(state.cached_docker)
-        docker_counts = dict(state.cached_docker_counts)
-    else:
-        docker = []
-        docker_counts = {"running": 0, "stopped": 0, "unhealthy": 0}
-        if homeassistant_mode:
-            state.ha_addons_api_ok = None
+    host_status = integration_status.get("host") or {}
+    host_metrics = dict(host_status.get("metrics") or {})
+    cpu_pct = float(safe_float(host_metrics.get("cpu_pct"), 0.0) or 0.0)
+    mem_pct = float(safe_float(host_metrics.get("mem_pct"), 0.0) or 0.0)
+    uptime_s = float(safe_float(host_metrics.get("uptime_s"), 0.0) or 0.0)
+    cpu_temp = float(safe_float(host_metrics.get("cpu_temp_c"), 0.0) or 0.0)
+    cpu_temp_available = bool(host_metrics.get("cpu_temp_available"))
+    disk_temp_available = bool(host_metrics.get("disk_temp_available"))
+    gpu_enabled = bool(host_metrics.get("gpu_enabled", not bool(getattr(args, "disable_gpu_polling", False))))
+    fan_available = bool(host_metrics.get("fan_available"))
+    gpu_available = bool(host_metrics.get("gpu_available"))
+    state.active_iface = str(host_metrics.get("active_iface") or state.active_iface or "")
+    state.active_disk = str(host_metrics.get("active_disk") or state.active_disk or "")
+    rx_kbps = float(safe_float(host_metrics.get("rx_kbps"), 0.0) or 0.0)
+    tx_kbps = float(safe_float(host_metrics.get("tx_kbps"), 0.0) or 0.0)
+    disk_r_kbs = float(safe_float(host_metrics.get("disk_r_kbs"), 0.0) or 0.0)
+    disk_w_kbs = float(safe_float(host_metrics.get("disk_w_kbs"), 0.0) or 0.0)
+    state.disk_temp_c = float(safe_float(host_metrics.get("disk_temp_c"), 0.0) or 0.0)
+    state.disk_usage_pct = float(safe_float(host_metrics.get("disk_usage_pct"), 0.0) or 0.0)
+    state.fan_rpm = float(safe_float(host_metrics.get("fan_rpm"), 0.0) or 0.0)
+    state.gpu_temp_c = float(safe_float(host_metrics.get("gpu_temp_c"), 0.0) or 0.0)
+    state.gpu_util_pct = float(safe_float(host_metrics.get("gpu_util_pct"), 0.0) or 0.0)
+    state.gpu_mem_pct = float(safe_float(host_metrics.get("gpu_mem_pct"), 0.0) or 0.0)
 
-    vm_enabled = not bool(getattr(args, "disable_vm_polling", False))
-    vm_interval = max(0.0, float(getattr(args, "vm_interval", 5.0) or 0.0))
-    if vm_enabled and vm_interval > 0.0 and (not state.last_vm_refresh_ts or (now - state.last_vm_refresh_ts) >= vm_interval):
-        try:
-            if homeassistant_mode:
-                vms = get_home_assistant_integrations(timeout=args.timeout)
-            else:
-                vms = get_virtual_machines_from_virsh(args.virsh_binary, args.virsh_uri, timeout=args.timeout)
-            state.ha_integrations_api_ok = True if homeassistant_mode else None
-        except Exception as e:
-            vms = []
-            state.ha_integrations_api_ok = False if homeassistant_mode else None
-            if (now - state.last_virsh_warn_ts) >= VIRSH_WARN_INTERVAL_SECONDS:
-                if homeassistant_mode:
-                    logging.warning("Home Assistant integration registry unavailable; continuing without integration data (%s)", e)
-                else:
-                    logging.warning(
-                        "virsh unavailable via %s%s; continuing without VM data (%s)",
-                        args.virsh_binary,
-                        f" -c {args.virsh_uri}" if args.virsh_uri else "",
-                        e,
-                    )
-                state.last_virsh_warn_ts = now
-        state.cached_vms = vms
-        state.cached_vm_counts = vm_summary_counts(vms)
-        state.last_vm_refresh_ts = now
-    if vm_enabled:
-        vms = list(state.cached_vms)
-        vm_counts = dict(state.cached_vm_counts)
-    else:
-        vms = []
-        vm_counts = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
-        if homeassistant_mode:
-            state.ha_integrations_api_ok = None
+    docker_status = integration_status.get("docker") or {}
+    docker_enabled = bool(docker_status.get("enabled", not bool(getattr(args, "disable_docker_polling", False))))
+    docker_counts = dict(docker_status.get("counts") or {"running": 0, "stopped": 0, "unhealthy": 0})
+    docker_compact = str(docker_status.get("compact") or "")
+    state.ha_addons_api_ok = docker_status.get("api_ok")
 
-    rx_bytes, tx_bytes, state.active_iface = get_net_bytes_local(args.iface, state.active_iface)
-    rx_kbps = 0.0
-    tx_kbps = 0.0
-    dt = 0.0
-    if state.prev_t is not None and now > state.prev_t:
-        dt = now - state.prev_t
-        if state.prev_rx is not None and rx_bytes >= state.prev_rx:
-            rx_kbps = ((rx_bytes - state.prev_rx) * 8.0) / 1000.0 / dt
-        if state.prev_tx is not None and tx_bytes >= state.prev_tx:
-            tx_kbps = ((tx_bytes - state.prev_tx) * 8.0) / 1000.0 / dt
+    vm_status = integration_status.get("vms") or {}
+    vm_enabled = bool(vm_status.get("enabled", not bool(getattr(args, "disable_vm_polling", False))))
+    vm_counts = dict(vm_status.get("counts") or {"running": 0, "stopped": 0, "paused": 0, "other": 0})
+    vm_compact = str(vm_status.get("compact") or "-")
+    state.ha_integrations_api_ok = vm_status.get("api_ok")
 
-    disk_read_b, disk_write_b, state.active_disk = get_disk_bytes_local(args.disk_device, state.active_disk)
-    disk_r_kbs = 0.0
-    disk_w_kbs = 0.0
-    if dt > 0.0:
-        if state.prev_disk_read_b is not None and disk_read_b >= state.prev_disk_read_b:
-            disk_r_kbs = (disk_read_b - state.prev_disk_read_b) / 1024.0 / dt
-        if state.prev_disk_write_b is not None and disk_write_b >= state.prev_disk_write_b:
-            disk_w_kbs = (disk_write_b - state.prev_disk_write_b) / 1024.0 / dt
-    state.prev_disk_read_b, state.prev_disk_write_b = disk_read_b, disk_write_b
-    state.prev_rx, state.prev_tx, state.prev_t = rx_bytes, tx_bytes, now
-
-    docker_compact = compact_containers(docker)
-    vm_compact = compact_virtual_machines(vms)
     ha_docker_api = -1 if state.ha_addons_api_ok is None else (1 if state.ha_addons_api_ok else 0)
     ha_vms_api = -1 if state.ha_integrations_api_ok is None else (1 if state.ha_integrations_api_ok else 0)
 
-    frame = state.tx_frame_index % 5
-    state.tx_frame_index = (state.tx_frame_index + 1) % 5
+    return {
+        "CPU": f"{cpu_pct:.1f}",
+        "TEMP": f"{cpu_temp:.1f}",
+        "MEM": f"{mem_pct:.1f}",
+        "UP": str(int(uptime_s)),
+        "RX": f"{rx_kbps:.0f}",
+        "TX": f"{tx_kbps:.0f}",
+        "IFACE": _metric_text(state.active_iface or ""),
+        "TEMPAV": "1" if cpu_temp_available else "0",
+        "HAMODE": "1" if homeassistant_mode else "0",
+        "HATOKEN": "1" if state.ha_token_present else "0",
+        "HADOCKAPI": str(ha_docker_api),
+        "HAVMSAPI": str(ha_vms_api),
+        "GPUEN": "1" if gpu_enabled else "0",
+        "DOCKEREN": "1" if docker_enabled else "0",
+        "VMSEN": "1" if vm_enabled else "0",
+        "DISK": f"{state.disk_temp_c:.1f}",
+        "DISKPCT": f"{state.disk_usage_pct:.1f}",
+        "DISKR": f"{disk_r_kbs:.0f}",
+        "DISKW": f"{disk_w_kbs:.0f}",
+        "FAN": f"{state.fan_rpm:.0f}",
+        "DISKTAV": "1" if disk_temp_available else "0",
+        "FANAV": "1" if fan_available else "0",
+        "GPUT": f"{state.gpu_temp_c:.1f}",
+        "GPUU": f"{state.gpu_util_pct:.0f}",
+        "GPUVM": f"{state.gpu_mem_pct:.0f}",
+        "GPUAV": "1" if gpu_available else "0",
+        "DOCKRUN": str(int(docker_counts.get("running", 0))),
+        "DOCKSTOP": str(int(docker_counts.get("stopped", 0))),
+        "DOCKUNH": str(int(docker_counts.get("unhealthy", 0))),
+        "DOCKER": docker_compact,
+        "VMSRUN": str(int(vm_counts.get("running", 0))),
+        "VMSSTOP": str(int(vm_counts.get("stopped", 0))),
+        "VMSPAUSE": str(int(vm_counts.get("paused", 0))),
+        "VMSOTHER": str(int(vm_counts.get("other", 0))),
+        "VMS": vm_compact,
+        "POWER": "RUNNING",
+    }
 
-    # Rotate compact frames to avoid overflowing the ESP USB CDC RX buffer.
-    if frame == 0:
-        return (
-            f"CPU={cpu_pct:.1f},"
-            f"TEMP={cpu_temp:.1f},"
-            f"MEM={mem_pct:.1f},"
-            f"UP={int(uptime_s)},"
-            f"RX={rx_kbps:.0f},"
-            f"TX={tx_kbps:.0f},"
-            f"IFACE={state.active_iface or ''},"
-            f"TEMPAV={1 if cpu_temp_available else 0},"
-            f"HAMODE={1 if homeassistant_mode else 0},"
-            f"HATOKEN={1 if state.ha_token_present else 0},"
-            f"HADOCKAPI={ha_docker_api},"
-            f"HAVMSAPI={ha_vms_api},"
-            f"GPUEN={1 if gpu_enabled else 0},"
-            f"DOCKEREN={1 if docker_enabled else 0},"
-            f"VMSEN={1 if vm_enabled else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 1:
-        return (
-            f"DISK={state.disk_temp_c:.1f},"
-            f"DISKPCT={state.disk_usage_pct:.1f},"
-            f"DISKR={disk_r_kbs:.0f},"
-            f"DISKW={disk_w_kbs:.0f},"
-            f"FAN={state.fan_rpm:.0f},"
-            f"DISKTAV={1 if disk_temp_available else 0},"
-            f"FANAV={1 if fan_available else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 2:
-        return (
-            f"GPUT={state.gpu_temp_c:.1f},"
-            f"GPUU={state.gpu_util_pct:.0f},"
-            f"GPUVM={state.gpu_mem_pct:.0f},"
-            f"GPUAV={1 if gpu_available else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 3:
-        return (
-            f"DOCKRUN={int(docker_counts.get('running', 0))},"
-            f"DOCKSTOP={int(docker_counts.get('stopped', 0))},"
-            f"DOCKUNH={int(docker_counts.get('unhealthy', 0))},"
-            f"DOCKER={docker_compact},"
-            f"POWER=RUNNING\n"
-        )
+
+def build_usb_status_frames(metric_snapshot: Dict[str, Any]) -> tuple[str, str, str, str, str]:
+    metrics = metric_snapshot if isinstance(metric_snapshot, dict) else {}
     return (
-        f"VMSRUN={int(vm_counts.get('running', 0))},"
-        f"VMSSTOP={int(vm_counts.get('stopped', 0))},"
-        f"VMSPAUSE={int(vm_counts.get('paused', 0))},"
-        f"VMSOTHER={int(vm_counts.get('other', 0))},"
-        f"VMS={vm_compact},"
-        f"POWER=RUNNING\n"
+        (
+            f"CPU={_metric_text(metrics.get('CPU'))},"
+            f"TEMP={_metric_text(metrics.get('TEMP'))},"
+            f"MEM={_metric_text(metrics.get('MEM'))},"
+            f"UP={_metric_text(metrics.get('UP'))},"
+            f"RX={_metric_text(metrics.get('RX'))},"
+            f"TX={_metric_text(metrics.get('TX'))},"
+            f"IFACE={_metric_text(metrics.get('IFACE'))},"
+            f"TEMPAV={_metric_text(metrics.get('TEMPAV'))},"
+            f"HAMODE={_metric_text(metrics.get('HAMODE'))},"
+            f"HATOKEN={_metric_text(metrics.get('HATOKEN'))},"
+            f"HADOCKAPI={_metric_text(metrics.get('HADOCKAPI'))},"
+            f"HAVMSAPI={_metric_text(metrics.get('HAVMSAPI'))},"
+            f"GPUEN={_metric_text(metrics.get('GPUEN'))},"
+            f"DOCKEREN={_metric_text(metrics.get('DOCKEREN'))},"
+            f"VMSEN={_metric_text(metrics.get('VMSEN'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"DISK={_metric_text(metrics.get('DISK'))},"
+            f"DISKPCT={_metric_text(metrics.get('DISKPCT'))},"
+            f"DISKR={_metric_text(metrics.get('DISKR'))},"
+            f"DISKW={_metric_text(metrics.get('DISKW'))},"
+            f"FAN={_metric_text(metrics.get('FAN'))},"
+            f"DISKTAV={_metric_text(metrics.get('DISKTAV'))},"
+            f"FANAV={_metric_text(metrics.get('FANAV'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"GPUT={_metric_text(metrics.get('GPUT'))},"
+            f"GPUU={_metric_text(metrics.get('GPUU'))},"
+            f"GPUVM={_metric_text(metrics.get('GPUVM'))},"
+            f"GPUAV={_metric_text(metrics.get('GPUAV'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"DOCKRUN={_metric_text(metrics.get('DOCKRUN'))},"
+            f"DOCKSTOP={_metric_text(metrics.get('DOCKSTOP'))},"
+            f"DOCKUNH={_metric_text(metrics.get('DOCKUNH'))},"
+            f"DOCKER={_metric_text(metrics.get('DOCKER'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"VMSRUN={_metric_text(metrics.get('VMSRUN'))},"
+            f"VMSSTOP={_metric_text(metrics.get('VMSSTOP'))},"
+            f"VMSPAUSE={_metric_text(metrics.get('VMSPAUSE'))},"
+            f"VMSOTHER={_metric_text(metrics.get('VMSOTHER'))},"
+            f"VMS={_metric_text(metrics.get('VMS'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
     )
+
+
+def build_runtime_snapshot(
+    args: argparse.Namespace,
+    state: RuntimeState,
+    *,
+    now: Optional[float] = None,
+    homeassistant_mode: Optional[bool] = None,
+) -> Dict[str, Any]:
+    now_ts = time.time() if now is None else float(now)
+    ha_mode = is_home_assistant_app_mode() if homeassistant_mode is None else bool(homeassistant_mode)
+    integration_status = poll_integrations(
+        PollContext(
+            args=args,
+            state=state,
+            now=now_ts,
+            homeassistant_mode=ha_mode,
+        )
+    )
+    metric_snapshot = build_runtime_metric_snapshot(
+        args,
+        state,
+        integration_status,
+        homeassistant_mode=ha_mode,
+    )
+    return {
+        "integration_status": integration_status,
+        "integration_health": copy.deepcopy(state.integration_health),
+        "metric_snapshot": metric_snapshot,
+        "usb_frames": build_usb_status_frames(metric_snapshot),
+    }
+
+
+def build_browser_status_payload(
+    status: Dict[str, Any],
+    *,
+    homeassistant_mode: bool,
+    redact_mask: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = dict(status or {})
+    cmd = payload.get("cmd")
+    if redact_mask and isinstance(cmd, list):
+        payload["cmd"] = redact_agent_command_args(cmd, redact_mask)
+    last_metrics = payload.get("last_metrics", {})
+    integration_health = payload.get("integration_health", {})
+    command_registry = payload.get("command_registry", [])
+    payload["integration_dashboard"] = integration_dashboard_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_dashboard"] = monitor_dashboard_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_details"] = monitor_detail_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_detail_payloads"] = monitor_detail_payload_snapshot(
+        last_metrics, homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_ui"] = preview_ui_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_cards"] = preview_cards_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_action_groups"] = preview_action_groups_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["summary_bar"] = summary_bar_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["integration_overview"] = integration_overview_snapshot(
+        integration_health,
+        command_registry,
+        homeassistant_mode=homeassistant_mode,
+    )
+    return payload
+
+
+def maybe_build_integration_health_line(state: RuntimeState, now: float) -> Optional[str]:
+    if not state.integration_health:
+        return None
+    try:
+        payload = json.dumps(state.integration_health, sort_keys=True, separators=(",", ":"))
+        compare_rows: Dict[str, Dict[str, Any]] = {}
+        for key, value in state.integration_health.items():
+            if not isinstance(value, dict):
+                continue
+            row = dict(value)
+            row.pop("last_refresh_ts", None)
+            row.pop("last_success_ts", None)
+            row.pop("last_error_ts", None)
+            compare_rows[str(key)] = row
+        compare_payload = json.dumps(compare_rows, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        return None
+    if (
+        compare_payload == state.last_integration_health_payload
+        and (now - float(state.last_integration_health_emit_ts or 0.0)) < INTEGRATION_HEALTH_LOG_MIN_INTERVAL_SECONDS
+    ):
+        return None
+    state.last_integration_health_payload = compare_payload
+    state.last_integration_health_emit_ts = now
+    return f"INTEGRATION_HEALTH={payload}"
 
 def agent_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="esp-host-bridge agent")
@@ -971,6 +934,9 @@ def run_agent(args: argparse.Namespace) -> int:
                     )
                 line = build_status_line(args, state)
                 logging.info("%s", line.strip())
+                health_line = maybe_build_integration_health_line(state, now)
+                if health_line:
+                    logging.info("%s", health_line)
                 if ser is not None:
                     if not state.display_sleeping:
                         next_sleep_probe_at = 0.0
@@ -1000,6 +966,9 @@ def run_agent(args: argparse.Namespace) -> int:
                     if state.display_refresh_pending and not state.display_sleeping:
                         line = build_status_line(args, state)
                         logging.info("%s", line.strip())
+                        health_line = maybe_build_integration_health_line(state, now)
+                        if health_line:
+                            logging.info("%s", health_line)
                         if not state.host_name_sent and HOST_NAME_USB:
                             ser.write(f"HOSTNAME={HOST_NAME_USB}\n".encode("utf-8", errors="ignore"))
                             state.host_name_sent = True
@@ -1064,6 +1033,7 @@ class RunnerManager:
         self._esp_wifi_rssi_dbm: Optional[int] = None
         self._esp_wifi_ip: str = ""
         self._esp_wifi_ssid: str = ""
+        self._integration_health_cache: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _is_comm_event_line(line: str) -> bool:
@@ -1130,6 +1100,8 @@ class RunnerManager:
         if not m:
             return
         payload = raw[m.start():]
+        if payload.startswith("INTEGRATION_HEALTH="):
+            return
         if ',' not in payload and 'POWER=' not in payload:
             return
         metrics: Dict[str, str] = {}
@@ -1161,6 +1133,31 @@ class RunnerManager:
                     hist = deque(maxlen=METRIC_HISTORY_POINTS)
                     self._metric_history[k] = hist
                 hist.append((now_ts, fv))
+            self._refresh_integration_health_from_metrics(metrics, now_ts)
+
+    def _refresh_integration_health_from_metrics(self, metrics: Dict[str, str], now_ts: float) -> None:
+        data = getattr(self, "_integration_health_cache", None)
+        if not isinstance(data, dict) or not data:
+            return
+
+        def _touch(key: str) -> None:
+            row = data.get(key)
+            if not isinstance(row, dict):
+                return
+            if row.get("enabled") is False:
+                return
+            if row.get("available") is False:
+                return
+            row["last_refresh_ts"] = now_ts
+            row["last_success_ts"] = now_ts
+
+        metric_keys = set(metrics.keys())
+        if metric_keys.intersection({"CPU", "MEM", "TEMP", "RX", "TX", "DISK", "DISKPCT", "DISKR", "DISKW", "FAN", "GPUT", "GPUU", "GPUVM"}):
+            _touch("host")
+        if metric_keys.intersection({"DOCKRUN", "DOCKSTOP", "DOCKUNH", "DOCKER"}):
+            _touch("docker")
+        if metric_keys.intersection({"VMSRUN", "VMSSTOP", "VMSPAUSE", "VMSOTHER", "VMS"}):
+            _touch("vms")
 
     def _try_capture_esp_boot(self, line: str) -> None:
         raw = (line or "").strip()
@@ -1225,6 +1222,28 @@ class RunnerManager:
                 self._esp_wifi_ip = ""
                 self._esp_wifi_ssid = ""
 
+    def _try_capture_integration_health(self, line: str) -> None:
+        raw = (line or "").strip()
+        marker = "INTEGRATION_HEALTH="
+        pos = raw.find(marker)
+        if pos < 0:
+            return
+        payload = raw[pos + len(marker):].strip()
+        if not payload:
+            return
+        try:
+            decoded = json.loads(payload)
+        except Exception:
+            return
+        if not isinstance(decoded, dict):
+            return
+        cleaned: Dict[str, Dict[str, Any]] = {}
+        for key, value in decoded.items():
+            if isinstance(value, dict):
+                cleaned[str(key)] = dict(value)
+        with self._lock:
+            self._integration_health_cache = cleaned
+
     def _append_log(self, line: str) -> None:
         raw = line.rstrip("\n")
         if not raw:
@@ -1236,6 +1255,7 @@ class RunnerManager:
         self._try_capture_metrics(line)
         self._try_capture_esp_boot(line)
         self._try_capture_esp_wifi(line)
+        self._try_capture_integration_health(line)
         with self._lock:
             self._logs.append((self._next_log_id, line))
             self._next_log_id += 1
@@ -1331,8 +1351,29 @@ class RunnerManager:
                 "last_metrics": dict(self._last_metrics),
                 "last_metrics_line": self._last_metrics_line,
                 "active_iface": active_iface,
+                "integration_health": copy.deepcopy(self._integration_health_or_default()),
+                "command_registry": command_registry_snapshot(),
                 "metric_history": {k: [float(vv) for _, vv in rows] for k, rows in self._metric_history.items()},
             }
+
+    def _integration_health_or_default(self) -> Dict[str, Dict[str, Any]]:
+        data = getattr(self, "_integration_health_cache", None)
+        if isinstance(data, dict):
+            now_ts = time.time()
+            out: Dict[str, Dict[str, Any]] = {}
+            for key, value in data.items():
+                if not isinstance(value, dict):
+                    continue
+                row = dict(value)
+                last_refresh_ts = safe_float(row.get("last_refresh_ts"), None)
+                last_success_ts = safe_float(row.get("last_success_ts"), None)
+                last_error_ts = safe_float(row.get("last_error_ts"), None)
+                row["last_refresh_age_s"] = (now_ts - last_refresh_ts) if last_refresh_ts else None
+                row["last_success_age_s"] = (now_ts - last_success_ts) if last_success_ts else None
+                row["last_error_age_s"] = (now_ts - last_error_ts) if last_error_ts else None
+                out[str(key)] = row
+            return out
+        return {}
 
     def _on_process_exit(self, proc: subprocess.Popen[str]) -> None:
         rc = proc.wait()
