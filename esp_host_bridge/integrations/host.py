@@ -407,6 +407,7 @@ HOST_PREVIEW_PAGES = (
             "right_dot_class": "right",
             "graph_id": "espNetGraph",
             "loading_id": "espNetLoading",
+            "scale_id": "espNetScale",
         },
         tab_label="Network",
         tab_icon_class="mdi-access-point-network",

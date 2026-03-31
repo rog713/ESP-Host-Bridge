@@ -238,6 +238,16 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.0'
+
+  - id: net_scale_kbps
+    type: uint32_t
+    restore_value: no
+    initial_value: '10000'
+
+  - id: net_scale_last_adjust_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
   - id: docker_dirty
     type: bool
     restore_value: no
@@ -4675,6 +4685,21 @@ lvgl:
                                     pad_bottom: 3
                                     radius: 8
                                     text: "NO DATA"
+                                - label:
+                                    id: info_net_scale_label
+                                    align: TOP_LEFT
+                                    x: 8
+                                    y: 8
+                                    text_color: 0xD1D5DB
+                                    text_font: arimo_14
+                                    bg_color: 0x0B1E4A
+                                    bg_opa: "80%"
+                                    pad_left: 8
+                                    pad_right: 8
+                                    pad_top: 3
+                                    pad_bottom: 3
+                                    radius: 8
+                                    text: "10 Mb/s"
     - id: VMS
       bg_color: 0x001F67
       scrollbar_mode: "OFF"
@@ -7734,7 +7759,6 @@ script:
 
           const int W = (int) lv_obj_get_width(id(info_net_graph));
           const int H = (int) lv_obj_get_height(id(info_net_graph));
-          const uint32_t maxv = 10000U;  // Fixed Y-axis (kbps) to avoid visible rescale/flicker on traffic bursts.
 
           lv_canvas_fill_bg(id(info_net_graph), lv_color_make(0x2D, 0x58, 0xBC), LV_OPA_COVER);
 
@@ -7753,6 +7777,69 @@ script:
               (id(host_power_state) == 3 ||
                (id(host_serial_seen) && id(host_serial_last_ms) != 0U &&
                 (uint32_t)(now - id(host_serial_last_ms)) > 5000U));
+
+          const uint32_t buckets[] = {
+            1000U, 2500U, 5000U, 10000U, 25000U, 50000U,
+            100000U, 250000U, 500000U, 1000000U, 2500000U, 5000000U
+          };
+          auto next_bucket = [&](uint32_t v) -> uint32_t {
+            for (uint32_t b : buckets) {
+              if (v <= b) return b;
+            }
+            return buckets[(sizeof(buckets) / sizeof(buckets[0])) - 1];
+          };
+          auto format_scale = [&](uint32_t kbps) -> std::string {
+            char buf[24];
+            if (kbps >= 1000000U) {
+              if ((kbps % 1000000U) == 0U) snprintf(buf, sizeof(buf), "%u Gb/s", (unsigned) (kbps / 1000000U));
+              else snprintf(buf, sizeof(buf), "%.1f Gb/s", kbps / 1000000.0f);
+            } else {
+              if ((kbps % 1000U) == 0U) snprintf(buf, sizeof(buf), "%u Mb/s", (unsigned) (kbps / 1000U));
+              else snprintf(buf, sizeof(buf), "%.1f Mb/s", kbps / 1000.0f);
+            }
+            return std::string(buf);
+          };
+
+          uint32_t peak = 0U;
+          if (have_data) {
+            for (int i = 0; i < 48; i++) {
+              peak = std::max(peak, id(net_rx_hist)[i]);
+              peak = std::max(peak, id(net_tx_hist)[i]);
+            }
+            peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_rx_kbps_last)) + 0.5f));
+            peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_tx_kbps_last)) + 0.5f));
+          }
+          const uint32_t target_maxv = next_bucket(std::max(peak, 1U));
+          uint32_t maxv = id(net_scale_kbps);
+          if (maxv < buckets[0] || maxv > buckets[(sizeof(buckets) / sizeof(buckets[0])) - 1]) {
+            maxv = buckets[3];
+          }
+          if (have_data) {
+            if (target_maxv > maxv) {
+              maxv = target_maxv;
+              id(net_scale_kbps) = maxv;
+              id(net_scale_last_adjust_ms) = now;
+            } else if (target_maxv < maxv) {
+              const bool shrink_ok =
+                  peak <= (uint32_t) ((float) maxv * 0.60f) &&
+                  (id(net_scale_last_adjust_ms) == 0U ||
+                   (uint32_t) (now - id(net_scale_last_adjust_ms)) > 15000U);
+              if (shrink_ok) {
+                maxv = target_maxv;
+                id(net_scale_kbps) = maxv;
+                id(net_scale_last_adjust_ms) = now;
+              }
+            }
+          }
+          if (id(info_net_scale_label) != nullptr) {
+            if (!have_data) {
+              lv_obj_add_flag(id(info_net_scale_label), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              const std::string scale_text = format_scale(maxv);
+              lv_label_set_text(id(info_net_scale_label), scale_text.c_str());
+              lv_obj_clear_flag(id(info_net_scale_label), LV_OBJ_FLAG_HIDDEN);
+            }
+          }
 
           // Unified status badge.
           if (id(info_net_loading_label) != nullptr) {

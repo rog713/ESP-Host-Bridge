@@ -695,6 +695,17 @@
       border-radius: 999px;
       background: rgba(11,30,74,0.80);
     }
+    .esp-sys-scale {
+      position:absolute;
+      left: 8px;
+      top: 8px;
+      color: #D1D5DB;
+      font-size: 14px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(11,30,74,0.80);
+      font-variant-numeric: tabular-nums;
+    }
     .esp-sys-loading { display: none !important; }
     .esp-sys-loading.is-empty,
     .esp-uptime-status.is-empty { color: #F9A8D4; }

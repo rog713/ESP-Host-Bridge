@@ -304,6 +304,8 @@ def _render_preview_page(page: dict[str, Any]) -> str:
         right_dot_class = html.escape(str(render_data.get("right_dot_class") or "right"))
         graph_id = html.escape(str(render_data.get("graph_id") or ""))
         loading_id = html.escape(str(render_data.get("loading_id") or ""))
+        scale_id = html.escape(str(render_data.get("scale_id") or ""))
+        scale_html = f'<div class="esp-sys-scale" id="{scale_id}">10 Mb/s</div>' if scale_id else ""
         body = (
             '<div class="esp-dualmetric-page">'
             '<div class="esp-page-hint"></div>'
@@ -321,6 +323,7 @@ def _render_preview_page(page: dict[str, Any]) -> str:
             '<div class="esp-sys-chartbox">'
             f'<div id="{graph_id}"></div>'
             f'<div class="esp-sys-loading" id="{loading_id}">Loading...</div>'
+            f'{scale_html}'
             '</div></div></div>'
         )
     elif render_kind == "system_graph":

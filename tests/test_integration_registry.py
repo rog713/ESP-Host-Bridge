@@ -276,6 +276,7 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(default_ui["pages"]["home"]["render_kind"], "home")
         self.assertEqual(default_ui["pages"]["settings_1"]["render_kind"], "brightness")
         self.assertEqual(default_ui["pages"]["info_1"]["render_kind"], "dual_metric_graph")
+        self.assertEqual(default_ui["pages"]["info_1"]["render_data"]["scale_id"], "espNetScale")
         self.assertEqual(default_ui["pages"]["info_2"]["render_kind"], "system_graph")
         self.assertEqual(default_ui["pages"]["info_3"]["render_kind"], "metric_graph")
         self.assertEqual(default_ui["pages"]["settings_1"]["nav"], {"up": "home", "left": "settings_2", "right": "settings_2"})
