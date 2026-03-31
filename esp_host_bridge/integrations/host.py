@@ -24,12 +24,12 @@ SLOW_SENSOR_REFRESH_SECONDS = 5.0
 HOST_POWER_COMMAND_IDS = ["host_shutdown", "host_restart"]
 
 HOST_CONFIG_FIELDS = (
-    ConfigFieldSpec("iface", "str", "", cli_flag="--iface"),
-    ConfigFieldSpec("gpu_polling_enabled", "bool", True, checkbox=True),
-    ConfigFieldSpec("disk_device", "str", "", cli_flag="--disk-device"),
-    ConfigFieldSpec("disk_temp_device", "str", "", cli_flag="--disk-temp-device"),
-    ConfigFieldSpec("cpu_temp_sensor", "str", "", cli_flag="--cpu-temp-sensor"),
-    ConfigFieldSpec("fan_sensor", "str", "", cli_flag="--fan-sensor"),
+    ConfigFieldSpec("iface", "str", "", cli_flag="--iface", label="Network Interface", section_key="telemetry_sources"),
+    ConfigFieldSpec("gpu_polling_enabled", "bool", True, checkbox=True, label="Enable GPU Metrics", section_key="telemetry_sources"),
+    ConfigFieldSpec("disk_device", "str", "", cli_flag="--disk-device", label="Disk Device", section_key="telemetry_sources"),
+    ConfigFieldSpec("disk_temp_device", "str", "", cli_flag="--disk-temp-device", label="Disk Temp Device", section_key="telemetry_sources"),
+    ConfigFieldSpec("cpu_temp_sensor", "str", "", cli_flag="--cpu-temp-sensor", label="CPU Temp Sensor", section_key="telemetry_sources"),
+    ConfigFieldSpec("fan_sensor", "str", "", cli_flag="--fan-sensor", label="Fan Sensor", section_key="telemetry_sources"),
 )
 
 
@@ -217,6 +217,9 @@ def poll(ctx: PollContext) -> Dict[str, Any]:
 
 HOST_INTEGRATION = IntegrationSpec(
     integration_id="host",
+    title="Telemetry Sources",
+    section_key="telemetry_sources",
+    icon_class="mdi-chip",
     config_fields=HOST_CONFIG_FIELDS,
     cfg_to_agent_args=cfg_to_agent_args,
     poll=poll,

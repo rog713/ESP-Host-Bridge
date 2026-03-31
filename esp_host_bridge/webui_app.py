@@ -33,7 +33,7 @@ from .config import (
     validate_cfg,
     webui_default_cfg,
 )
-from .integrations import redact_agent_command_args
+from .integrations import get_integration_spec, redact_agent_command_args
 from .metrics import detect_hardware_choices
 from .runtime import (
     APP_VERSION,
@@ -68,6 +68,58 @@ def _render_mode_toggle_html() -> str:
 
 def _render_topbar_subtitle() -> str:
     return "USB CDC telemetry and control bridge for ESPHome"
+
+
+def _integration_title(integration_id: str, homeassistant_mode: bool) -> str:
+    spec = get_integration_spec(integration_id)
+    if spec is None:
+        return integration_id
+    if homeassistant_mode and spec.homeassistant_title:
+        return spec.homeassistant_title
+    return spec.title or integration_id
+
+
+def _render_config_field_input(field: Any, cfg: Dict[str, Any], homeassistant_mode: bool) -> str:
+    field_name = str(field.name)
+    label = str((field.homeassistant_label if homeassistant_mode else field.label) or field_name)
+    hint = str((field.homeassistant_hint if homeassistant_mode else field.hint) or "")
+    value = cfg.get(field_name, field.default)
+
+    if homeassistant_mode and getattr(field, "readonly_when_homeassistant", False):
+        readonly_value = str(field.homeassistant_value or value or "")
+        control = f'<div class="hint" style="margin-bottom:6px;"><code>{html.escape(readonly_value)}</code></div>'
+    elif getattr(field, "checkbox", False):
+        checked_attr = " checked" if _clean_bool(value, bool(field.default)) else ""
+        control = f'<input name="{html.escape(field_name)}" type="checkbox"{checked_attr}>'
+    elif str(field.kind) in {"float", "int"}:
+        step = str(field.input_step or ("0.1" if str(field.kind) == "float" else "1"))
+        number_value = html.escape(str(value))
+        control = f'<input name="{html.escape(field_name)}" type="number" step="{html.escape(step)}" value="{number_value}">'
+    else:
+        control = f'<input name="{html.escape(field_name)}" type="text" value="{html.escape(str(value or ""))}">'
+
+    hint_html = f'<div class="hint">{hint}</div>' if hint else ""
+    return f'<div class="row"><label>{html.escape(label)}</label><div>{control}{hint_html}</div></div>'
+
+
+def _render_integration_setup_section(cfg: Dict[str, Any], integration_id: str, homeassistant_mode: bool) -> str:
+    spec = get_integration_spec(integration_id)
+    if spec is None:
+        return ""
+    title = _integration_title(integration_id, homeassistant_mode)
+    icon_class = str(spec.icon_class or "mdi-cog-outline")
+    section_key = str(spec.section_key or integration_id)
+    rows = [
+        _render_config_field_input(field, cfg, homeassistant_mode)
+        for field in spec.config_fields
+        if str(getattr(field, "section_key", "") or "") == section_key
+    ]
+    rows_html = "\n      ".join(rows)
+    return (
+        f'<details class="section" data-section-key="{html.escape(section_key)}">'
+        f'<summary><span class="section-icon" aria-hidden="true"><span class="mdi {html.escape(icon_class)}"></span></span>{html.escape(title)}</summary>'
+        f'<div class="section-body">\n      {rows_html}\n      </div></details>'
+    )
 
 def page_html(title: str, body: str) -> str:
     mode_toggle_html = _render_mode_toggle_html()
@@ -358,81 +410,6 @@ def create_app(
         err_html = f'<div class="err">{html.escape(err)}</div>' if err else ""
         logout_action = "/logout"
         homeassistant_mode = is_home_assistant_app_mode()
-        workload_section_title = "Add-ons" if homeassistant_mode else "Docker"
-        workload_enable_label = "Enable Add-on Polling" if homeassistant_mode else "Enable Docker Polling"
-        workload_enable_hint = (
-            "Turn add-on polling on or off without changing the Home Assistant Supervisor data source."
-            if homeassistant_mode
-            else "Turn Docker polling on or off without deleting the socket path."
-        )
-        workload_source_label = "Add-on Source" if homeassistant_mode else "Docker Socket"
-        workload_source_hint = (
-            "Home Assistant app mode reads add-ons from the Supervisor API. This value is ignored."
-            if homeassistant_mode
-            else "Only used when Docker polling is enabled."
-        )
-        workload_interval_label = "Add-on Poll Interval (s)" if homeassistant_mode else "Docker Poll Interval (s)"
-        workload_interval_hint = (
-            "How often the Supervisor add-on list is refreshed. Set to <code>0</code> to disable add-on polling."
-            if homeassistant_mode
-            else "Set to <code>0</code> to disable Docker polling entirely. <code>2</code> is a good default on low-power hosts."
-        )
-        vm_section_title = "Integrations" if homeassistant_mode else "Virtual Machines"
-        vm_enable_label = "Enable Integration Polling" if homeassistant_mode else "Enable VM Polling"
-        vm_enable_hint = (
-            "Turn integration polling on or off without changing the Home Assistant Core query settings."
-            if homeassistant_mode
-            else "Turn VM polling on or off without deleting the <code>virsh</code> settings."
-        )
-        vm_binary_label = "Integration Source" if homeassistant_mode else "Virsh Binary"
-        vm_binary_hint = (
-            "Home Assistant app mode reads integrations from the Home Assistant Core WebSocket API. This value is ignored."
-            if homeassistant_mode
-            else "Path to <code>virsh</code>. Use an absolute path if the Web UI launches outside your shell environment."
-        )
-        vm_uri_label = "Integration Query" if homeassistant_mode else "Virsh URI"
-        vm_uri_hint = (
-            "Home Assistant app mode groups entity-registry entries by integration domain. This value is ignored."
-            if homeassistant_mode
-            else "Optional libvirt connection URI, for example <code>qemu:///system</code>."
-        )
-        vm_interval_label = "Integration Poll Interval (s)" if homeassistant_mode else "VM Poll Interval (s)"
-        vm_interval_hint = (
-            "How often the Home Assistant integration registry is refreshed. <code>5</code> is a good default."
-            if homeassistant_mode
-            else "How often VM data is refreshed. <code>5</code> is a good default for low-power hosts."
-        )
-        readonly_attr = ' readonly' if homeassistant_mode else ''
-        workload_source_value = (
-            "Home Assistant Supervisor API"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('docker_socket', '/var/run/docker.sock')))
-        )
-        vm_binary_value = (
-            "Home Assistant Core WebSocket API"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('virsh_binary', 'virsh')))
-        )
-        vm_uri_value = (
-            "config/entity_registry/list_for_display"
-            if homeassistant_mode
-            else html.escape(str(cfg.get('virsh_uri', '')))
-        )
-        workload_source_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{workload_source_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"docker_socket\" type=\"text\" value=\"{workload_source_value}\"{readonly_attr}>"
-        )
-        vm_binary_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{vm_binary_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"virsh_binary\" type=\"text\" value=\"{vm_binary_value}\"{readonly_attr}>"
-        )
-        vm_uri_control = (
-            f"<div class=\"hint\" style=\"margin-bottom:6px;\"><code>{vm_uri_value}</code></div>"
-            if homeassistant_mode
-            else f"<input name=\"virsh_uri\" type=\"text\" value=\"{vm_uri_value}\"{readonly_attr}>"
-        )
         if homeassistant_mode:
             power_commands_body = """
       <div class=\"row\"><label>Power Control Path</label><div><input type=\"text\" value=\"Home Assistant Supervisor host API\" readonly><div class=\"hint\">Uses <code>POST /host/shutdown</code> for <code>CMD=shutdown</code> and <code>POST /host/reboot</code> for <code>CMD=restart</code> / <code>CMD=reboot</code>.</div></div></div>
@@ -507,17 +484,8 @@ def create_app(
       <div class=\"row\"><label>Fan Sensor</label><div><div style=\"display:flex; align-items:center; gap:8px; flex-wrap:wrap;\"><input id=\"fanSensorInput\" name=\"fan_sensor\" type=\"text\" value=\"{html.escape(str(cfg.get('fan_sensor', '')))}\"><span id=\"fanSensorChip\" class=\"sensor-chip auto\">Auto</span></div><div class=\"hint\">Optional. Leave blank for auto fan detection, or choose a detected sensor below.</div></div></div>
       <div class=\"row\"><label>Detected Fan Sensors</label><div><div class=\"actions\" style=\"margin-top:0;\"><select id=\"fanSensorSelect\" style=\"min-width:280px; flex:1;\"><option value=\"\">(click Refresh Fan Sensors)</option></select><button id=\"refreshFanSensorBtn\" class=\"secondary\" type=\"button\">Refresh Fan Sensors</button><button id=\"useFanSensorBtn\" class=\"secondary\" type=\"button\">Use Sensor</button></div><div id=\"fanSensorResult\" class=\"hint\" style=\"margin-top:6px;\"></div></div></div>
       </div></details>
-      <details class=\"section\" data-section-key=\"docker\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-docker\"></span></span>{workload_section_title}</summary><div class=\"section-body\">
-      <div class=\"row\"><label>{workload_enable_label}</label><div><input name=\"docker_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('docker_polling_enabled', True) else ''}><div class=\"hint\">{workload_enable_hint}</div></div></div>
-      <div class=\"row\"><label>{workload_source_label}</label><div>{workload_source_control}<div class=\"hint\">{workload_source_hint}</div></div></div>
-      <div class=\"row\"><label>{workload_interval_label}</label><div><input name=\"docker_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('docker_interval', 2.0)))}\"><div class=\"hint\">{workload_interval_hint}</div></div></div>
-      </div></details>
-      <details class=\"section\" data-section-key=\"virtual_machines\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-monitor-multiple\"></span></span>{vm_section_title}</summary><div class=\"section-body\">
-      <div class=\"row\"><label>{vm_enable_label}</label><div><input name=\"vm_polling_enabled\" type=\"checkbox\" {'checked' if cfg.get('vm_polling_enabled', True) else ''}><div class=\"hint\">{vm_enable_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_binary_label}</label><div>{vm_binary_control}<div class=\"hint\">{vm_binary_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_uri_label}</label><div>{vm_uri_control}<div class=\"hint\">{vm_uri_hint}</div></div></div>
-      <div class=\"row\"><label>{vm_interval_label}</label><div><input name=\"vm_interval\" type=\"number\" step=\"0.1\" value=\"{html.escape(str(cfg.get('vm_interval', 5.0)))}\"><div class=\"hint\">{vm_interval_hint}</div></div></div>
-      </div></details>
+      {_render_integration_setup_section(cfg, "docker", homeassistant_mode)}
+      {_render_integration_setup_section(cfg, "vms", homeassistant_mode)}
       <details class=\"section\" data-section-key=\"power_commands\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-power\"></span></span>Power Commands</summary><div class=\"section-body\">
       {power_commands_body}
       </div></details>

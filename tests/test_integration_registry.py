@@ -13,6 +13,7 @@ from esp_host_bridge.config import (
 from esp_host_bridge.integrations import (
     command_registry_snapshot,
     dispatch_integration_command,
+    get_integration_spec,
     get_registered_config_fields,
     integration_health_snapshot,
     redact_agent_command_args,
@@ -45,6 +46,23 @@ class IntegrationRegistryTests(unittest.TestCase):
                 "vm_interval",
             }.issubset(names)
         )
+
+    def test_docker_and_vm_specs_expose_setup_ui_metadata(self) -> None:
+        docker = get_integration_spec("docker")
+        vms = get_integration_spec("vms")
+        self.assertIsNotNone(docker)
+        self.assertIsNotNone(vms)
+        assert docker is not None
+        assert vms is not None
+        self.assertEqual(docker.section_key, "docker")
+        self.assertEqual(vms.section_key, "virtual_machines")
+        self.assertTrue(docker.title)
+        self.assertTrue(vms.title)
+        for field in docker.config_fields + vms.config_fields:
+            self.assertTrue(field.label)
+            self.assertTrue(field.section_key)
+            if field.readonly_when_homeassistant:
+                self.assertTrue(field.homeassistant_value)
 
     def test_command_registry_snapshot_exposes_expected_owners(self) -> None:
         snapshot = command_registry_snapshot()

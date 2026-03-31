@@ -16,10 +16,55 @@ VMS_WARN_INTERVAL_SECONDS = 30.0
 VMS_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "paused": 0, "other": 0}
 
 VMS_CONFIG_FIELDS = (
-    ConfigFieldSpec("virsh_binary", "str", "virsh", cli_flag="--virsh-binary"),
-    ConfigFieldSpec("virsh_uri", "str", "", cli_flag="--virsh-uri"),
-    ConfigFieldSpec("vm_polling_enabled", "bool", True, checkbox=True),
-    ConfigFieldSpec("vm_interval", "float", 5.0, cli_flag="--vm-interval"),
+    ConfigFieldSpec(
+        "vm_polling_enabled",
+        "bool",
+        True,
+        checkbox=True,
+        label="Enable VM Polling",
+        hint="Turn VM polling on or off without deleting the <code>virsh</code> settings.",
+        section_key="virtual_machines",
+        homeassistant_label="Enable Integration Polling",
+        homeassistant_hint="Turn integration polling on or off without changing the Home Assistant Core query settings.",
+    ),
+    ConfigFieldSpec(
+        "virsh_binary",
+        "str",
+        "virsh",
+        cli_flag="--virsh-binary",
+        label="Virsh Binary",
+        hint="Path to <code>virsh</code>. Use an absolute path if the Web UI launches outside your shell environment.",
+        section_key="virtual_machines",
+        homeassistant_label="Integration Source",
+        homeassistant_hint="Home Assistant app mode reads integrations from the Home Assistant Core WebSocket API. This value is ignored.",
+        homeassistant_value="Home Assistant Core WebSocket API",
+        readonly_when_homeassistant=True,
+    ),
+    ConfigFieldSpec(
+        "virsh_uri",
+        "str",
+        "",
+        cli_flag="--virsh-uri",
+        label="Virsh URI",
+        hint="Optional libvirt connection URI, for example <code>qemu:///system</code>.",
+        section_key="virtual_machines",
+        homeassistant_label="Integration Query",
+        homeassistant_hint="Home Assistant app mode groups entity-registry entries by integration domain. This value is ignored.",
+        homeassistant_value="config/entity_registry/list_for_display",
+        readonly_when_homeassistant=True,
+    ),
+    ConfigFieldSpec(
+        "vm_interval",
+        "float",
+        5.0,
+        cli_flag="--vm-interval",
+        label="VM Poll Interval (s)",
+        hint="How often VM data is refreshed. <code>5</code> is a good default for low-power hosts.",
+        section_key="virtual_machines",
+        input_step="0.1",
+        homeassistant_label="Integration Poll Interval (s)",
+        homeassistant_hint="How often the Home Assistant integration registry is refreshed. <code>5</code> is a good default.",
+    ),
 )
 
 VMS_COMMANDS = (
@@ -282,6 +327,10 @@ def handle_command(cmd: str, ctx: CommandContext) -> bool:
 
 VMS_INTEGRATION = IntegrationSpec(
     integration_id="vms",
+    title="Virtual Machines",
+    homeassistant_title="Integrations",
+    section_key="virtual_machines",
+    icon_class="mdi-monitor-multiple",
     config_fields=VMS_CONFIG_FIELDS,
     commands=VMS_COMMANDS,
     validate_cfg=validate_cfg,

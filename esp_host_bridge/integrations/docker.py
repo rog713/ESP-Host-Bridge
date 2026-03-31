@@ -18,9 +18,42 @@ DOCKER_WARN_INTERVAL_SECONDS = 30.0
 DOCKER_DEFAULT_COUNTS = {"running": 0, "stopped": 0, "unhealthy": 0}
 
 DOCKER_CONFIG_FIELDS = (
-    ConfigFieldSpec("docker_socket", "str", "/var/run/docker.sock", cli_flag="--docker-socket"),
-    ConfigFieldSpec("docker_polling_enabled", "bool", True, checkbox=True),
-    ConfigFieldSpec("docker_interval", "float", 2.0, cli_flag="--docker-interval"),
+    ConfigFieldSpec(
+        "docker_polling_enabled",
+        "bool",
+        True,
+        checkbox=True,
+        label="Enable Docker Polling",
+        hint="Turn Docker polling on or off without deleting the socket path.",
+        section_key="docker",
+        homeassistant_label="Enable Add-on Polling",
+        homeassistant_hint="Turn add-on polling on or off without changing the Home Assistant Supervisor data source.",
+    ),
+    ConfigFieldSpec(
+        "docker_socket",
+        "str",
+        "/var/run/docker.sock",
+        cli_flag="--docker-socket",
+        label="Docker Socket",
+        hint="Only used when Docker polling is enabled.",
+        section_key="docker",
+        homeassistant_label="Add-on Source",
+        homeassistant_hint="Home Assistant app mode reads add-ons from the Supervisor API. This value is ignored.",
+        homeassistant_value="Home Assistant Supervisor API",
+        readonly_when_homeassistant=True,
+    ),
+    ConfigFieldSpec(
+        "docker_interval",
+        "float",
+        2.0,
+        cli_flag="--docker-interval",
+        label="Docker Poll Interval (s)",
+        hint="Set to <code>0</code> to disable Docker polling entirely. <code>2</code> is a good default on low-power hosts.",
+        section_key="docker",
+        input_step="0.1",
+        homeassistant_label="Add-on Poll Interval (s)",
+        homeassistant_hint="How often the Supervisor add-on list is refreshed. Set to <code>0</code> to disable add-on polling.",
+    ),
 )
 
 DOCKER_COMMANDS = (
@@ -299,6 +332,10 @@ def handle_command(cmd: str, ctx: CommandContext) -> bool:
 
 DOCKER_INTEGRATION = IntegrationSpec(
     integration_id="docker",
+    title="Docker",
+    homeassistant_title="Add-ons",
+    section_key="docker",
+    icon_class="mdi-docker",
     config_fields=DOCKER_CONFIG_FIELDS,
     commands=DOCKER_COMMANDS,
     validate_cfg=validate_cfg,

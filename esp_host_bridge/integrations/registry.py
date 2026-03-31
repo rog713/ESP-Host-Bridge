@@ -39,6 +39,16 @@ def get_registered_integrations() -> tuple[IntegrationSpec, ...]:
     return _REGISTERED_INTEGRATIONS
 
 
+def get_integration_spec(integration_id: str) -> Optional[IntegrationSpec]:
+    target = str(integration_id or "").strip().lower()
+    if not target:
+        return None
+    for integration in _REGISTERED_INTEGRATIONS:
+        if integration.integration_id == target:
+            return integration
+    return None
+
+
 def get_registered_commands() -> tuple[CommandSpec, ...]:
     out: list[CommandSpec] = list(_BUILTIN_COMMANDS)
     for integration in _REGISTERED_INTEGRATIONS:

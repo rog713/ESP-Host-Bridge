@@ -20,6 +20,14 @@ class ConfigFieldSpec:
     checkbox: bool = False
     secret: bool = False
     cli_flag: Optional[str] = None
+    label: str = ""
+    hint: str = ""
+    section_key: str = ""
+    input_step: Optional[str] = None
+    homeassistant_label: Optional[str] = None
+    homeassistant_hint: Optional[str] = None
+    homeassistant_value: Optional[str] = None
+    readonly_when_homeassistant: bool = False
 
 
 @dataclass
@@ -53,6 +61,10 @@ class CommandSpec:
 @dataclass(frozen=True)
 class IntegrationSpec:
     integration_id: str
+    title: str = ""
+    homeassistant_title: Optional[str] = None
+    section_key: str = ""
+    icon_class: str = ""
     config_fields: tuple[ConfigFieldSpec, ...] = ()
     commands: tuple[CommandSpec, ...] = ()
     validate_cfg: Optional[Callable[[Dict[str, Any], CleanerSet], list[str]]] = None

@@ -3,6 +3,7 @@ from .host import HOST_INTEGRATION
 from .registry import (
     command_registry_snapshot,
     dispatch_integration_command,
+    get_integration_spec,
     get_registered_commands,
     get_registered_config_fields,
     get_registered_integrations,
@@ -26,6 +27,7 @@ __all__ = [
     "PollContext",
     "command_registry_snapshot",
     "dispatch_integration_command",
+    "get_integration_spec",
     "get_registered_commands",
     "get_registered_config_fields",
     "get_registered_integrations",
