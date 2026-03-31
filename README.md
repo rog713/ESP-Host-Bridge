@@ -25,7 +25,7 @@ If you want the Home Assistant add-on instead of the standalone Linux install, u
 
 ## Requirements
 
-- Linux or macOS
+- Linux
 - Python 3.9+
 - a connected ESP device over USB serial
 
@@ -60,12 +60,6 @@ Start the Web UI:
 
 ```bash
 esp-host-bridge webui
-```
-
-On macOS, use the wrapper entrypoint so the Web UI and agent pick up the macOS-specific overrides:
-
-```bash
-esp-host-bridge-mac webui
 ```
 
 Open:

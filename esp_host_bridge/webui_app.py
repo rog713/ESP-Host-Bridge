@@ -20,20 +20,15 @@ from urllib.parse import quote_plus
 from .config import (
     _clean_bool,
     _clean_str,
-    REDACTED_SECRET_TEXT,
     atomic_write_json,
     cfg_from_form,
     default_webui_config_path,
     ensure_webui_session_secret,
     load_cfg,
     normalize_cfg,
-    preserve_secret_fields,
-    redact_cfg,
-    secret_placeholder_text,
     validate_cfg,
     webui_default_cfg,
 )
-from .integrations import redact_agent_command_args
 from .metrics import detect_hardware_choices
 from .runtime import (
     APP_VERSION,
@@ -243,9 +238,8 @@ def create_app(
 
     autostart = _env_flag("AUTOSTART", True) if autostart_override is None else bool(autostart_override)
     python_bin = os.environ.get("WEBUI_PYTHON", sys.executable or "python3")
-    portable_script = str(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", "") or "").strip()
-    self_script = Path(portable_script or str(Path(__file__).resolve()))
-    package_module = None if portable_script else ((__package__ or "").split(".", 1)[0] or None)
+    self_script = Path(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", str(Path(__file__).resolve())))
+    package_module = (__package__ or "").split(".", 1)[0] or None
     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
     initial_cfg = load_cfg(cfg_path)
     initial_cfg, secret_updated = ensure_webui_session_secret(initial_cfg)
@@ -463,15 +457,6 @@ def create_app(
         vm_list_label = "Integrations" if homeassistant_mode else "Virtual Machines"
         vm_waiting_text = "Waiting for integration data..." if homeassistant_mode else "Waiting for VM data..."
         vm_show_all = "Show all integrations" if homeassistant_mode else "Show all virtual machines"
-        saved_webui_password_placeholder = secret_placeholder_text(
-            bool(_clean_str(cfg.get("webui_password_hash"), "")),
-            REDACTED_SECRET_TEXT,
-        )
-        webui_password_hint = (
-            f'Leave blank to keep the current password. Stored value is masked as <code>{html.escape(saved_webui_password_placeholder)}</code>. Disable protection to remove it.'
-            if saved_webui_password_placeholder
-            else "Leave blank to keep the current password. Disable protection to remove it."
-        )
         body = f"""
 <div id=\"setupView\" class=\"grid\">
   <div class=\"card\">
@@ -523,7 +508,7 @@ def create_app(
       </div></details>
       <details class=\"section\" data-section-key=\"direct_webui_security\"><summary><span class=\"section-icon\" aria-hidden=\"true\"><span class=\"mdi mdi-lock-outline\"></span></span>Direct Web UI Security</summary><div class=\"section-body\">
       <div class=\"row\"><label>Protect Direct Web UI</label><div><input name=\"webui_auth_enabled\" type=\"checkbox\" {'checked' if cfg.get('webui_auth_enabled') else ''}><div class=\"hint\">Requires a password for direct Web UI access.</div></div></div>
-      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\" placeholder=\"{html.escape(saved_webui_password_placeholder)}\"><div class=\"hint\">{webui_password_hint}</div></div></div>
+      <div class=\"row\"><label>New Password</label><div><input name=\"webui_password\" type=\"password\" autocomplete=\"new-password\"><div class=\"hint\">Leave blank to keep the current password. Disable protection to remove it.</div></div></div>
       </div></details>
       <div class=\"actions form-actions-sticky\">
         <button type=\"submit\">Save + Restart</button>
@@ -626,7 +611,6 @@ def create_app(
       <div class="summary-chip"><div class="k">Agent</div><div class="v" id="sumAgent">--</div></div>
       <div class="summary-chip"><div class="k">Serial / Workloads</div><div class="v" id="sumDocker">--</div></div>
       <div class="summary-chip"><div class="k">Last Telemetry</div><div class="v" id="sumAge">--</div></div>
-      <div class="summary-chip"><div class="k">Integrations</div><div class="v" id="sumIntegrations">--</div></div>
       <div class="summary-chip"><div class="k">Host Power</div><div class="v" id="sumPower">--</div></div>
     </div>
     <div class="monitor-grid">
@@ -933,19 +917,6 @@ def create_app(
         <div class="mcard"><div class="metric-label">{workload_list_label}</div><div class="metric-sub" id="dockerMoreHint">{workload_waiting_text}</div><ul class="docker-list" id="dockerPreviewList"></ul><details><summary class="monitor-note">{workload_show_all}</summary><ul class="docker-list" id="dockerAllList"></ul></details></div>
         <div class="mcard"><div class="metric-label">{vm_list_label}</div><div class="metric-sub" id="vmMoreHint">{vm_waiting_text}</div><ul class="docker-list" id="vmPreviewList"></ul><details><summary class="monitor-note">{vm_show_all}</summary><ul class="docker-list" id="vmAllList"></ul></details></div>
       </div></section>
-      <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-puzzle-outline"></span></span>Integration Health</h3><div class="mgroup-grid">
-        <div class="mcard">
-          <div class="metric-label">Integrations</div>
-          <div class="integration-health-list" id="integrationHealthList">
-            <div class="monitor-note">Waiting for integration health...</div>
-          </div>
-        </div>
-        <div class="mcard">
-          <div class="metric-label">Command Registry</div>
-          <div class="metric-sub" id="commandRegistryHint">Waiting for command registry...</div>
-          <div class="command-registry-list" id="commandRegistryList"></div>
-        </div>
-      </div></section>
     </div>
   </div>
 </div>
@@ -963,7 +934,6 @@ window.__HOST_METRICS_BOOT__ = {{
     def save() -> Any:
         cfg = cfg_from_form(request.form)
         existing_cfg = load_cfg(cfg_path)
-        cfg = preserve_secret_fields(cfg, existing_cfg)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         auth_enabled = _clean_bool(cfg.get("webui_auth_enabled"), False)
@@ -1009,15 +979,11 @@ window.__HOST_METRICS_BOOT__ = {{
 
     @app.get("/api/status")
     def api_status() -> Any:
-        status = dict(pub.status())
-        cmd = status.get("cmd")
-        if isinstance(cmd, list):
-            status["cmd"] = redact_agent_command_args(cmd, REDACTED_SECRET_TEXT)
-        return jsonify(status)
+        return jsonify(pub.status())
 
     @app.get("/api/config")
     def api_config() -> Any:
-        return jsonify(redact_cfg(load_cfg(cfg_path), REDACTED_SECRET_TEXT))
+        return jsonify(load_cfg(cfg_path))
 
     @app.get("/api/ports")
     def api_ports() -> Any:
@@ -1129,7 +1095,6 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
-        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)
@@ -1150,7 +1115,6 @@ window.__HOST_METRICS_BOOT__ = {{
         payload = request.get_json(silent=True) or {}
         existing_cfg = load_cfg(cfg_path)
         cfg = normalize_cfg(payload) if isinstance(payload, dict) and payload else existing_cfg
-        cfg = preserve_secret_fields(cfg, existing_cfg, include_builtin=True)
         cfg["webui_session_secret"] = _clean_str(existing_cfg.get("webui_session_secret"), "")
         cfg["webui_password_hash"] = _clean_str(existing_cfg.get("webui_password_hash"), "")
         ok_valid, msg_valid = validate_cfg(cfg)

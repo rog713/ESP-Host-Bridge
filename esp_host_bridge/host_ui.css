@@ -299,22 +299,6 @@
     .docker-pill.other { color:#dbeafe; border-color: rgba(96,165,250,0.22); background: rgba(96,165,250,0.08); }
     .docker-card-wide { grid-column: span 2; }
     .monitor-note { color:var(--muted); font-size:12px; }
-    .integration-health-list,
-    .command-registry-list { display:grid; gap:8px; margin-top:8px; }
-    .integration-health-row,
-    .command-registry-group { border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px; background: rgba(255,255,255,0.02); display:grid; gap:6px; }
-    .integration-health-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .integration-health-title,
-    .command-registry-owner { font-size:13px; font-weight:700; color: var(--text); }
-    .integration-health-meta,
-    .command-registry-meta { font-size:12px; color: var(--muted); overflow-wrap:anywhere; }
-    .integration-health-error { font-size:12px; color: #fca5a5; overflow-wrap:anywhere; }
-    .integration-health-tags { display:flex; flex-wrap:wrap; gap:6px; }
-    .integration-health-tags span,
-    .command-registry-flag { display:inline-flex; align-items:center; padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--muted); font-size:11px; }
-    .command-registry-flag { color:#fcd34d; border-color: rgba(245,158,11,0.24); background: rgba(245,158,11,0.08); margin-left:6px; }
-    .command-registry-row { display:grid; gap:2px; }
-    .command-registry-title { font-size:12px; font-weight:700; color: var(--text); overflow-wrap:anywhere; }
     .esp-preview-wrap { display:grid; gap:10px; grid-template-columns: 1fr; }
     .esp-preview-wrap {
       --esp-bg: #001F67;
