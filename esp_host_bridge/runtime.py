@@ -676,14 +676,24 @@ def maybe_build_integration_health_line(state: RuntimeState, now: float) -> Opti
         return None
     try:
         payload = json.dumps(state.integration_health, sort_keys=True, separators=(",", ":"))
+        compare_rows: Dict[str, Dict[str, Any]] = {}
+        for key, value in state.integration_health.items():
+            if not isinstance(value, dict):
+                continue
+            row = dict(value)
+            row.pop("last_refresh_ts", None)
+            row.pop("last_success_ts", None)
+            row.pop("last_error_ts", None)
+            compare_rows[str(key)] = row
+        compare_payload = json.dumps(compare_rows, sort_keys=True, separators=(",", ":"))
     except Exception:
         return None
     if (
-        payload == state.last_integration_health_payload
+        compare_payload == state.last_integration_health_payload
         and (now - float(state.last_integration_health_emit_ts or 0.0)) < INTEGRATION_HEALTH_LOG_MIN_INTERVAL_SECONDS
     ):
         return None
-    state.last_integration_health_payload = payload
+    state.last_integration_health_payload = compare_payload
     state.last_integration_health_emit_ts = now
     return f"INTEGRATION_HEALTH={payload}"
 
@@ -1164,7 +1174,20 @@ class RunnerManager:
     def _integration_health_or_default(self) -> Dict[str, Dict[str, Any]]:
         data = getattr(self, "_integration_health_cache", None)
         if isinstance(data, dict):
-            return data
+            now_ts = time.time()
+            out: Dict[str, Dict[str, Any]] = {}
+            for key, value in data.items():
+                if not isinstance(value, dict):
+                    continue
+                row = dict(value)
+                last_refresh_ts = safe_float(row.get("last_refresh_ts"), None)
+                last_success_ts = safe_float(row.get("last_success_ts"), None)
+                last_error_ts = safe_float(row.get("last_error_ts"), None)
+                row["last_refresh_age_s"] = (now_ts - last_refresh_ts) if last_refresh_ts else None
+                row["last_success_age_s"] = (now_ts - last_success_ts) if last_success_ts else None
+                row["last_error_age_s"] = (now_ts - last_error_ts) if last_error_ts else None
+                out[str(key)] = row
+            return out
         return {}
 
     def _on_process_exit(self, proc: subprocess.Popen[str]) -> None:
