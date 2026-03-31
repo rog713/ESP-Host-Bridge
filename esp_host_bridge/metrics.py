@@ -260,6 +260,71 @@ def _psutil_net_dev() -> dict[str, Tuple[float, float]]:
         return {}
     return out
 
+
+def _iface_is_routable(iface: str) -> bool:
+    if not psutil or not hasattr(psutil, "net_if_addrs"):
+        return False
+    try:
+        addrs = psutil.net_if_addrs().get(iface, [])
+    except Exception:
+        return False
+    for addr in addrs:
+        family = getattr(addr, "family", None)
+        value = str(getattr(addr, "address", "") or "").strip()
+        if not value:
+            continue
+        if family == socket.AF_INET:
+            if value.startswith("127.") or value.startswith("169.254."):
+                continue
+            return True
+        if getattr(socket, "AF_INET6", None) == family:
+            ll = value.lower()
+            if ll == "::1" or ll.startswith("fe80:"):
+                continue
+            return True
+    return False
+
+
+def _preferred_net_iface(stats: dict[str, Tuple[float, float]]) -> Optional[str]:
+    if not stats:
+        return None
+    iface_stats = {}
+    if psutil and hasattr(psutil, "net_if_stats"):
+        try:
+            iface_stats = psutil.net_if_stats()
+        except Exception:
+            iface_stats = {}
+
+    exclude_exact = {"lo", "loopback", "lo0", "gif0", "stf0", "bridge0", "awdl0", "llw0", "ap1"}
+    exclude_prefixes = ("utun", "gif", "stf", "anpi", "bridge", "awdl", "llw", "ap")
+    prefer_prefixes = ("en", "eth", "wl", "wlan")
+
+    def score(name: str, rx: float, tx: float) -> tuple[int, int, str]:
+        lname = name.lower()
+        total = int(rx + tx)
+        score_val = 0
+        if lname in exclude_exact or lname.startswith(exclude_prefixes):
+            score_val -= 1000
+        if lname.startswith(prefer_prefixes):
+            score_val += 250
+        if _iface_is_routable(name):
+            score_val += 200
+        row = iface_stats.get(name)
+        if row is not None and bool(getattr(row, "isup", False)):
+            score_val += 100
+        if total > 0:
+            score_val += 50
+        return score_val, total, lname
+
+    ranked = sorted(
+        ((score(name, rx, tx), name) for name, (rx, tx) in stats.items()),
+        reverse=True,
+    )
+    for (score_val, _total, _lname), name in ranked:
+        if score_val > -1000:
+            return name
+    return ranked[0][1] if ranked else None
+
 def get_net_bytes_local(iface_hint: Optional[str] = None, last_iface: Optional[str] = None) -> Tuple[float, float, Optional[str]]:
     stats = _parse_proc_net_dev() or _psutil_net_dev()
     if not stats:
@@ -270,9 +335,10 @@ def get_net_bytes_local(iface_hint: Optional[str] = None, last_iface: Optional[s
     if last_iface and last_iface in stats:
         rx, tx = stats[last_iface]
         return rx, tx, last_iface
-    for iface, (rx, tx) in stats.items():
-        if iface.lower() not in {"lo", "loopback", "lo0"}:
-            return rx, tx, iface
+    iface = _preferred_net_iface(stats)
+    if iface and iface in stats:
+        rx, tx = stats[iface]
+        return rx, tx, iface
     iface = next(iter(stats.keys()))
     rx, tx = stats[iface]
     return rx, tx, iface

@@ -238,8 +238,9 @@ def create_app(
 
     autostart = _env_flag("AUTOSTART", True) if autostart_override is None else bool(autostart_override)
     python_bin = os.environ.get("WEBUI_PYTHON", sys.executable or "python3")
-    self_script = Path(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", str(Path(__file__).resolve())))
-    package_module = (__package__ or "").split(".", 1)[0] or None
+    portable_script = str(os.environ.get("PORTABLE_HOST_METRICS_SCRIPT", "") or "").strip()
+    self_script = Path(portable_script or str(Path(__file__).resolve()))
+    package_module = None if portable_script else ((__package__ or "").split(".", 1)[0] or None)
     pub = RunnerManager(self_script=self_script, python_bin=python_bin, package_module=package_module)
     initial_cfg = load_cfg(cfg_path)
     initial_cfg, secret_updated = ensure_webui_session_secret(initial_cfg)
