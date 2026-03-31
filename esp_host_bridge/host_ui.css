@@ -270,6 +270,8 @@
     .summary-chip .k { font-size:11px; color: var(--muted); }
     .summary-chip .v { font-size:15px; font-weight:700; margin-top:2px; overflow-wrap:anywhere; }
     .monitor-grid { display:grid; gap:12px; grid-template-columns: repeat(12, minmax(0,1fr)); }
+    #monitorDashboardSections,
+    #monitorDetailSections { display: contents; }
     .mgroup { grid-column: span 12; border:1px solid var(--border); border-radius:14px; background: rgba(255,255,255,0.02); padding:12px; }
     .mgroup h3 { margin:0 0 10px; font-size:13px; letter-spacing:.2px; color:var(--muted); }
     .mgroup h3 .gicon { display:inline-flex; width:20px; height:20px; align-items:center; justify-content:center; margin-right:6px; border-radius:8px; border:1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.03); color: var(--accent-2); font-size:11px; vertical-align:middle; }
