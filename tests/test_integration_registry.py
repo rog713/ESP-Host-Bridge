@@ -19,7 +19,7 @@ from esp_host_bridge.integrations import (
 )
 from esp_host_bridge.integrations import registry as registry_mod
 from esp_host_bridge.integrations.base import CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec
-from esp_host_bridge.runtime import RunnerManager
+from esp_host_bridge.runtime import RunnerManager, build_host_power_command_previews
 
 
 class IntegrationRegistryTests(unittest.TestCase):
@@ -206,6 +206,21 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertIn("host", snapshot)
         self.assertEqual(snapshot["host"]["source"], "local_probes")
         self.assertEqual(snapshot["host"]["commands"], ["host_shutdown", "host_restart"])
+
+    def test_host_power_previews_follow_registered_host_commands(self) -> None:
+        with mock.patch(
+            "esp_host_bridge.runtime.resolve_host_command_argv",
+            side_effect=lambda cmd, **kwargs: ([f"/fake/{cmd}"], None),
+        ):
+            items = build_host_power_command_previews(use_sudo=False)
+
+        by_id = {row["command_id"]: row for row in items}
+        self.assertIn("host_shutdown", by_id)
+        self.assertIn("host_restart", by_id)
+        self.assertEqual(by_id["host_shutdown"]["trigger"], "shutdown")
+        self.assertEqual(by_id["host_shutdown"]["command"], "/fake/shutdown")
+        self.assertEqual(by_id["host_restart"]["trigger"], "restart")
+        self.assertEqual(by_id["host_restart"]["command"], "/fake/restart")
 
 
 if __name__ == "__main__":

@@ -44,10 +44,10 @@ from .runtime import (
     _mdi_codepoint_map_cache,
     _mdi_codepoint_map_cache_err,
     _mdi_codepoint_map_lock,
+    build_host_power_command_previews,
     detect_host_power_command_defaults,
     fmt_ts,
     is_home_assistant_app_mode,
-    resolve_host_command_argv,
     RunnerManager,
 )
 from .serial import list_serial_port_choices, test_serial_open
@@ -1052,26 +1052,15 @@ window.__HOST_METRICS_BOOT__ = {{
             use_sudo = _clean_bool(payload.get("host_cmd_use_sudo"), False)
             shutdown_cmd = _clean_str(payload.get("shutdown_cmd"), "")
             restart_cmd = _clean_str(payload.get("restart_cmd"), "")
-
-            def _preview(cmd_name: str) -> Dict[str, Any]:
-                argv, err = resolve_host_command_argv(
-                    cmd_name,
-                    use_sudo=use_sudo,
-                    shutdown_cmd=shutdown_cmd,
-                    restart_cmd=restart_cmd,
-                )
-                if argv is None:
-                    return {"ok": False, "command": "", "message": err or "not available"}
-                return {
-                    "ok": True,
-                    "command": " ".join(shlex.quote(x) for x in argv),
-                    "message": "ok",
+            return jsonify(
+                {
+                    "items": build_host_power_command_previews(
+                        use_sudo=use_sudo,
+                        shutdown_cmd=shutdown_cmd,
+                        restart_cmd=restart_cmd,
+                    )
                 }
-
-            return jsonify({
-                "shutdown": _preview("shutdown"),
-                "restart": _preview("restart"),
-            })
+            )
 
     @app.get("/api/logs")
     def api_logs() -> Any:

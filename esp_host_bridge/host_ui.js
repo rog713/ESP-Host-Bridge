@@ -1744,12 +1744,16 @@ async function previewHostPowerCommands() {
       }),
     });
     const data = await r.json();
-    const s = data && data.shutdown ? data.shutdown : {};
-    const rr = data && data.restart ? data.restart : {};
-    box.textContent =
-      `CMD=shutdown -> ${s.ok ? s.command : (s.message || 'not available')}
-` +
-      `CMD=restart  -> ${rr.ok ? rr.command : (rr.message || 'not available')}`;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    if (!items.length) {
+      box.textContent = 'No host power commands registered.';
+      return;
+    }
+    box.textContent = items.map((item) => {
+      const trigger = String((item && item.trigger) || (item && item.command_id) || 'command');
+      const resolved = item && item.ok ? item.command : (item && item.message) || 'not available';
+      return `CMD=${trigger} -> ${resolved}`;
+    }).join('\n');
   } catch (_) {
     box.textContent = 'Failed to load preview';
   } finally {

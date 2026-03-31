@@ -271,6 +271,7 @@ from .integrations import (
     PollContext,
     command_registry_snapshot,
     dispatch_integration_command,
+    get_registered_commands,
     integration_health_snapshot,
     match_registered_command,
     poll_integrations,
@@ -353,6 +354,48 @@ def resolve_host_command_argv(
     if use_sudo and system in {"linux", "darwin"} and argv and argv[0] != "sudo":
         argv = ["sudo"] + argv
     return argv, None
+
+
+def build_host_power_command_previews(
+    *,
+    use_sudo: bool = False,
+    shutdown_cmd: Optional[str] = None,
+    restart_cmd: Optional[str] = None,
+) -> list[Dict[str, Any]]:
+    runtime_cmd_by_id = {
+        "host_shutdown": "shutdown",
+        "host_restart": "restart",
+    }
+    out: list[Dict[str, Any]] = []
+    for spec in get_registered_commands():
+        if spec.owner_id != "host":
+            continue
+        runtime_cmd = runtime_cmd_by_id.get(spec.command_id)
+        if not runtime_cmd:
+            continue
+        argv, err = resolve_host_command_argv(
+            runtime_cmd,
+            use_sudo=use_sudo,
+            shutdown_cmd=shutdown_cmd,
+            restart_cmd=restart_cmd,
+        )
+        row: Dict[str, Any] = {
+            "command_id": spec.command_id,
+            "label": spec.label,
+            "trigger": spec.patterns[0] if spec.patterns else runtime_cmd,
+            "destructive": bool(spec.destructive),
+            "confirmation_text": spec.confirmation_text or None,
+        }
+        if argv is None:
+            row["ok"] = False
+            row["command"] = ""
+            row["message"] = err or "not available"
+        else:
+            row["ok"] = True
+            row["command"] = " ".join(shlex.quote(x) for x in argv)
+            row["message"] = "ok"
+        out.append(row)
+    return out
 
 def execute_host_command(
     cmd: str,
