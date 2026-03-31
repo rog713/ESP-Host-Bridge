@@ -8404,7 +8404,8 @@ script:
             peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_rx_kbps_last)) + 0.5f));
             peak = std::max(peak, (uint32_t) (std::max(0.0f, id(net_tx_kbps_last)) + 0.5f));
           }
-          const uint32_t target_maxv = next_bucket(std::max(peak, 1U));
+          const uint32_t target_peak = peak == 0U ? 1U : peak;
+          const uint32_t target_maxv = next_bucket(target_peak);
           uint32_t maxv = id(net_scale_kbps);
           if (maxv < buckets[0] || maxv > buckets[(sizeof(buckets) / sizeof(buckets[0])) - 1]) {
             maxv = buckets[2];
