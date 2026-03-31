@@ -12,10 +12,13 @@ from esp_host_bridge.config import (
 )
 from esp_host_bridge.integrations import (
     command_registry_snapshot,
+    dispatch_integration_command,
     get_registered_config_fields,
+    integration_health_snapshot,
     redact_agent_command_args,
 )
-from esp_host_bridge.integrations.base import ConfigFieldSpec
+from esp_host_bridge.integrations import registry as registry_mod
+from esp_host_bridge.integrations.base import CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec
 from esp_host_bridge.runtime import RunnerManager
 
 
@@ -144,6 +147,65 @@ class IntegrationRegistryTests(unittest.TestCase):
         self.assertEqual(mgr._integration_health_cache["host"]["last_refresh_ts"], 123.45)
         self.assertEqual(mgr._integration_health_cache["docker"]["last_refresh_ts"], 123.45)
         self.assertEqual(mgr._integration_health_cache["vms"]["last_refresh_ts"], 123.45)
+
+    def test_dispatch_integration_command_routes_to_matching_owner(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def _docker_handler(cmd: str, ctx: CommandContext) -> bool:
+            calls.append(("docker", cmd))
+            return True
+
+        def _vms_handler(cmd: str, ctx: CommandContext) -> bool:
+            calls.append(("vms", cmd))
+            return True
+
+        fake_integrations = (
+            IntegrationSpec(
+                integration_id="docker",
+                commands=(
+                    CommandSpec("docker_start", "docker", ("docker_start:",), match_kind="prefix"),
+                ),
+                handle_command=_docker_handler,
+            ),
+            IntegrationSpec(
+                integration_id="vms",
+                commands=(
+                    CommandSpec("vm_start", "vms", ("vm_start:",), match_kind="prefix"),
+                ),
+                handle_command=_vms_handler,
+            ),
+        )
+        ctx = CommandContext(args=object(), state=object(), timeout=2.0, homeassistant_mode=False)
+        with mock.patch.object(registry_mod, "_REGISTERED_INTEGRATIONS", fake_integrations):
+            self.assertTrue(dispatch_integration_command("docker_start:plex", ctx))
+            self.assertTrue(dispatch_integration_command("vm_start:ubuntu", ctx))
+            self.assertFalse(dispatch_integration_command("unknown:thing", ctx))
+
+        self.assertEqual(calls, [("docker", "docker_start:plex"), ("vms", "vm_start:ubuntu")])
+
+    def test_integration_health_snapshot_prefers_polled_health_payloads(self) -> None:
+        polled = {
+            "host": {
+                "enabled": True,
+                "metrics": {"cpu_pct": 7.1},
+                "health": {
+                    "integration_id": "host",
+                    "enabled": True,
+                    "available": True,
+                    "source": "local_probes",
+                    "last_refresh_ts": 10.0,
+                    "last_success_ts": 10.0,
+                    "last_error": None,
+                    "last_error_ts": None,
+                    "commands": ["host_shutdown", "host_restart"],
+                    "api_ok": None,
+                },
+            }
+        }
+        snapshot = integration_health_snapshot(polled)
+        self.assertIn("host", snapshot)
+        self.assertEqual(snapshot["host"]["source"], "local_probes")
+        self.assertEqual(snapshot["host"]["commands"], ["host_shutdown", "host_restart"])
 
 
 if __name__ == "__main__":
