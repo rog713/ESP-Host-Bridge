@@ -272,9 +272,19 @@ from .integrations import (
     command_registry_snapshot,
     dispatch_integration_command,
     get_registered_commands,
+    integration_dashboard_snapshot,
     integration_health_snapshot,
+    integration_overview_snapshot,
     match_registered_command,
+    monitor_dashboard_snapshot,
+    monitor_detail_payload_snapshot,
+    monitor_detail_snapshot,
     poll_integrations,
+    preview_action_groups_snapshot,
+    preview_cards_snapshot,
+    preview_ui_snapshot,
+    redact_agent_command_args,
+    summary_bar_snapshot,
 )
 from .serial import serial_io_bypassed, try_open_serial_once
 
@@ -585,15 +595,29 @@ def process_usb_commands(
 def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     now = time.time()
     homeassistant_mode = is_home_assistant_app_mode()
-    state.ha_token_present = bool(SUPERVISOR_TOKEN)
-    integration_status = poll_integrations(
-        PollContext(
-            args=args,
-            state=state,
-            now=now,
-            homeassistant_mode=homeassistant_mode,
-        )
+    runtime_snapshot = build_runtime_snapshot(
+        args,
+        state,
+        now=now,
+        homeassistant_mode=homeassistant_mode,
     )
+    frame = state.tx_frame_index % 5
+    state.tx_frame_index = (state.tx_frame_index + 1) % 5
+    return runtime_snapshot["usb_frames"][frame]
+
+
+def _metric_text(value: Any) -> str:
+    return str(value if value is not None else "")
+
+
+def build_runtime_metric_snapshot(
+    args: argparse.Namespace,
+    state: RuntimeState,
+    integration_status: Dict[str, Dict[str, Any]],
+    *,
+    homeassistant_mode: bool,
+) -> Dict[str, str]:
+    state.ha_token_present = bool(SUPERVISOR_TOKEN)
     state.integration_health = integration_health_snapshot(integration_status)
 
     host_status = integration_status.get("host") or {}
@@ -622,14 +646,12 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
 
     docker_status = integration_status.get("docker") or {}
     docker_enabled = bool(docker_status.get("enabled", not bool(getattr(args, "disable_docker_polling", False))))
-    docker = list(docker_status.get("items") or [])
     docker_counts = dict(docker_status.get("counts") or {"running": 0, "stopped": 0, "unhealthy": 0})
     docker_compact = str(docker_status.get("compact") or "")
     state.ha_addons_api_ok = docker_status.get("api_ok")
 
     vm_status = integration_status.get("vms") or {}
     vm_enabled = bool(vm_status.get("enabled", not bool(getattr(args, "disable_vm_polling", False))))
-    vms = list(vm_status.get("items") or [])
     vm_counts = dict(vm_status.get("counts") or {"running": 0, "stopped": 0, "paused": 0, "other": 0})
     vm_compact = str(vm_status.get("compact") or "-")
     state.ha_integrations_api_ok = vm_status.get("api_ok")
@@ -637,64 +659,176 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     ha_docker_api = -1 if state.ha_addons_api_ok is None else (1 if state.ha_addons_api_ok else 0)
     ha_vms_api = -1 if state.ha_integrations_api_ok is None else (1 if state.ha_integrations_api_ok else 0)
 
-    frame = state.tx_frame_index % 5
-    state.tx_frame_index = (state.tx_frame_index + 1) % 5
+    return {
+        "CPU": f"{cpu_pct:.1f}",
+        "TEMP": f"{cpu_temp:.1f}",
+        "MEM": f"{mem_pct:.1f}",
+        "UP": str(int(uptime_s)),
+        "RX": f"{rx_kbps:.0f}",
+        "TX": f"{tx_kbps:.0f}",
+        "IFACE": _metric_text(state.active_iface or ""),
+        "TEMPAV": "1" if cpu_temp_available else "0",
+        "HAMODE": "1" if homeassistant_mode else "0",
+        "HATOKEN": "1" if state.ha_token_present else "0",
+        "HADOCKAPI": str(ha_docker_api),
+        "HAVMSAPI": str(ha_vms_api),
+        "GPUEN": "1" if gpu_enabled else "0",
+        "DOCKEREN": "1" if docker_enabled else "0",
+        "VMSEN": "1" if vm_enabled else "0",
+        "DISK": f"{state.disk_temp_c:.1f}",
+        "DISKPCT": f"{state.disk_usage_pct:.1f}",
+        "DISKR": f"{disk_r_kbs:.0f}",
+        "DISKW": f"{disk_w_kbs:.0f}",
+        "FAN": f"{state.fan_rpm:.0f}",
+        "DISKTAV": "1" if disk_temp_available else "0",
+        "FANAV": "1" if fan_available else "0",
+        "GPUT": f"{state.gpu_temp_c:.1f}",
+        "GPUU": f"{state.gpu_util_pct:.0f}",
+        "GPUVM": f"{state.gpu_mem_pct:.0f}",
+        "GPUAV": "1" if gpu_available else "0",
+        "DOCKRUN": str(int(docker_counts.get("running", 0))),
+        "DOCKSTOP": str(int(docker_counts.get("stopped", 0))),
+        "DOCKUNH": str(int(docker_counts.get("unhealthy", 0))),
+        "DOCKER": docker_compact,
+        "VMSRUN": str(int(vm_counts.get("running", 0))),
+        "VMSSTOP": str(int(vm_counts.get("stopped", 0))),
+        "VMSPAUSE": str(int(vm_counts.get("paused", 0))),
+        "VMSOTHER": str(int(vm_counts.get("other", 0))),
+        "VMS": vm_compact,
+        "POWER": "RUNNING",
+    }
 
-    # Rotate compact frames to avoid overflowing the ESP USB CDC RX buffer.
-    if frame == 0:
-        return (
-            f"CPU={cpu_pct:.1f},"
-            f"TEMP={cpu_temp:.1f},"
-            f"MEM={mem_pct:.1f},"
-            f"UP={int(uptime_s)},"
-            f"RX={rx_kbps:.0f},"
-            f"TX={tx_kbps:.0f},"
-            f"IFACE={state.active_iface or ''},"
-            f"TEMPAV={1 if cpu_temp_available else 0},"
-            f"HAMODE={1 if homeassistant_mode else 0},"
-            f"HATOKEN={1 if state.ha_token_present else 0},"
-            f"HADOCKAPI={ha_docker_api},"
-            f"HAVMSAPI={ha_vms_api},"
-            f"GPUEN={1 if gpu_enabled else 0},"
-            f"DOCKEREN={1 if docker_enabled else 0},"
-            f"VMSEN={1 if vm_enabled else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 1:
-        return (
-            f"DISK={state.disk_temp_c:.1f},"
-            f"DISKPCT={state.disk_usage_pct:.1f},"
-            f"DISKR={disk_r_kbs:.0f},"
-            f"DISKW={disk_w_kbs:.0f},"
-            f"FAN={state.fan_rpm:.0f},"
-            f"DISKTAV={1 if disk_temp_available else 0},"
-            f"FANAV={1 if fan_available else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 2:
-        return (
-            f"GPUT={state.gpu_temp_c:.1f},"
-            f"GPUU={state.gpu_util_pct:.0f},"
-            f"GPUVM={state.gpu_mem_pct:.0f},"
-            f"GPUAV={1 if gpu_available else 0},"
-            f"POWER=RUNNING\n"
-        )
-    if frame == 3:
-        return (
-            f"DOCKRUN={int(docker_counts.get('running', 0))},"
-            f"DOCKSTOP={int(docker_counts.get('stopped', 0))},"
-            f"DOCKUNH={int(docker_counts.get('unhealthy', 0))},"
-            f"DOCKER={docker_compact},"
-            f"POWER=RUNNING\n"
-        )
+
+def build_usb_status_frames(metric_snapshot: Dict[str, Any]) -> tuple[str, str, str, str, str]:
+    metrics = metric_snapshot if isinstance(metric_snapshot, dict) else {}
     return (
-        f"VMSRUN={int(vm_counts.get('running', 0))},"
-        f"VMSSTOP={int(vm_counts.get('stopped', 0))},"
-        f"VMSPAUSE={int(vm_counts.get('paused', 0))},"
-        f"VMSOTHER={int(vm_counts.get('other', 0))},"
-        f"VMS={vm_compact},"
-        f"POWER=RUNNING\n"
+        (
+            f"CPU={_metric_text(metrics.get('CPU'))},"
+            f"TEMP={_metric_text(metrics.get('TEMP'))},"
+            f"MEM={_metric_text(metrics.get('MEM'))},"
+            f"UP={_metric_text(metrics.get('UP'))},"
+            f"RX={_metric_text(metrics.get('RX'))},"
+            f"TX={_metric_text(metrics.get('TX'))},"
+            f"IFACE={_metric_text(metrics.get('IFACE'))},"
+            f"TEMPAV={_metric_text(metrics.get('TEMPAV'))},"
+            f"HAMODE={_metric_text(metrics.get('HAMODE'))},"
+            f"HATOKEN={_metric_text(metrics.get('HATOKEN'))},"
+            f"HADOCKAPI={_metric_text(metrics.get('HADOCKAPI'))},"
+            f"HAVMSAPI={_metric_text(metrics.get('HAVMSAPI'))},"
+            f"GPUEN={_metric_text(metrics.get('GPUEN'))},"
+            f"DOCKEREN={_metric_text(metrics.get('DOCKEREN'))},"
+            f"VMSEN={_metric_text(metrics.get('VMSEN'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"DISK={_metric_text(metrics.get('DISK'))},"
+            f"DISKPCT={_metric_text(metrics.get('DISKPCT'))},"
+            f"DISKR={_metric_text(metrics.get('DISKR'))},"
+            f"DISKW={_metric_text(metrics.get('DISKW'))},"
+            f"FAN={_metric_text(metrics.get('FAN'))},"
+            f"DISKTAV={_metric_text(metrics.get('DISKTAV'))},"
+            f"FANAV={_metric_text(metrics.get('FANAV'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"GPUT={_metric_text(metrics.get('GPUT'))},"
+            f"GPUU={_metric_text(metrics.get('GPUU'))},"
+            f"GPUVM={_metric_text(metrics.get('GPUVM'))},"
+            f"GPUAV={_metric_text(metrics.get('GPUAV'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"DOCKRUN={_metric_text(metrics.get('DOCKRUN'))},"
+            f"DOCKSTOP={_metric_text(metrics.get('DOCKSTOP'))},"
+            f"DOCKUNH={_metric_text(metrics.get('DOCKUNH'))},"
+            f"DOCKER={_metric_text(metrics.get('DOCKER'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
+        (
+            f"VMSRUN={_metric_text(metrics.get('VMSRUN'))},"
+            f"VMSSTOP={_metric_text(metrics.get('VMSSTOP'))},"
+            f"VMSPAUSE={_metric_text(metrics.get('VMSPAUSE'))},"
+            f"VMSOTHER={_metric_text(metrics.get('VMSOTHER'))},"
+            f"VMS={_metric_text(metrics.get('VMS'))},"
+            f"POWER={_metric_text(metrics.get('POWER'))}\n"
+        ),
     )
+
+
+def build_runtime_snapshot(
+    args: argparse.Namespace,
+    state: RuntimeState,
+    *,
+    now: Optional[float] = None,
+    homeassistant_mode: Optional[bool] = None,
+) -> Dict[str, Any]:
+    now_ts = time.time() if now is None else float(now)
+    ha_mode = is_home_assistant_app_mode() if homeassistant_mode is None else bool(homeassistant_mode)
+    integration_status = poll_integrations(
+        PollContext(
+            args=args,
+            state=state,
+            now=now_ts,
+            homeassistant_mode=ha_mode,
+        )
+    )
+    metric_snapshot = build_runtime_metric_snapshot(
+        args,
+        state,
+        integration_status,
+        homeassistant_mode=ha_mode,
+    )
+    return {
+        "integration_status": integration_status,
+        "integration_health": copy.deepcopy(state.integration_health),
+        "metric_snapshot": metric_snapshot,
+        "usb_frames": build_usb_status_frames(metric_snapshot),
+    }
+
+
+def build_browser_status_payload(
+    status: Dict[str, Any],
+    *,
+    homeassistant_mode: bool,
+    redact_mask: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = dict(status or {})
+    cmd = payload.get("cmd")
+    if redact_mask and isinstance(cmd, list):
+        payload["cmd"] = redact_agent_command_args(cmd, redact_mask)
+    last_metrics = payload.get("last_metrics", {})
+    integration_health = payload.get("integration_health", {})
+    command_registry = payload.get("command_registry", [])
+    payload["integration_dashboard"] = integration_dashboard_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_dashboard"] = monitor_dashboard_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_details"] = monitor_detail_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["monitor_detail_payloads"] = monitor_detail_payload_snapshot(
+        last_metrics, homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_ui"] = preview_ui_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_cards"] = preview_cards_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["preview_action_groups"] = preview_action_groups_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["summary_bar"] = summary_bar_snapshot(
+        homeassistant_mode=homeassistant_mode
+    )
+    payload["integration_overview"] = integration_overview_snapshot(
+        integration_health,
+        command_registry,
+        homeassistant_mode=homeassistant_mode,
+    )
+    return payload
 
 
 def maybe_build_integration_health_line(state: RuntimeState, now: float) -> Optional[str]:

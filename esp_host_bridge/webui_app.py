@@ -36,16 +36,6 @@ from .config import (
 )
 from .integrations import (
     get_integration_spec,
-    integration_dashboard_snapshot,
-    integration_overview_snapshot,
-    monitor_dashboard_snapshot,
-    monitor_detail_snapshot,
-    monitor_detail_payload_snapshot,
-    preview_cards_snapshot,
-    preview_action_groups_snapshot,
-    preview_ui_snapshot,
-    redact_agent_command_args,
-    summary_bar_snapshot,
 )
 from .metrics import detect_hardware_choices
 from .runtime import (
@@ -59,6 +49,7 @@ from .runtime import (
     _mdi_codepoint_map_lock,
     build_host_power_command_defaults,
     build_host_power_command_previews,
+    build_browser_status_payload,
     fmt_ts,
     is_home_assistant_app_mode,
     RunnerManager,
@@ -797,7 +788,12 @@ def create_app(
     @app.get("/")
     def index() -> str:
         cfg = load_cfg(cfg_path)
-        st = pub.status()
+        homeassistant_mode = is_home_assistant_app_mode()
+        st = build_browser_status_payload(
+            pub.status(),
+            homeassistant_mode=homeassistant_mode,
+            redact_mask=REDACTED_SECRET_TEXT,
+        )
         logs = pub.logs_tail_text()
         comm_logs = pub.comm_logs_tail_text()
         msg = request.args.get("msg", "").strip()
@@ -806,17 +802,16 @@ def create_app(
         msg_html = f'<div class="ok">{html.escape(msg)}</div>' if msg else ""
         err_html = f'<div class="err">{html.escape(err)}</div>' if err else ""
         logout_action = "/logout"
-        homeassistant_mode = is_home_assistant_app_mode()
-        summary_bar = summary_bar_snapshot(homeassistant_mode=homeassistant_mode)
-        preview_cards = preview_cards_snapshot(homeassistant_mode=homeassistant_mode)
-        preview_ui = preview_ui_snapshot(homeassistant_mode=homeassistant_mode)
+        summary_bar = st.get("summary_bar") or []
+        preview_cards = st.get("preview_cards") or []
+        preview_ui = st.get("preview_ui") or {}
         preview_pages = _preview_page_map(preview_ui)
         preview_home = preview_pages.get("home", {})
         docker_modal = _preview_modal_meta(preview_ui, "docker")
         vms_modal = _preview_modal_meta(preview_ui, "vms")
-        preview_action_groups = preview_action_groups_snapshot(homeassistant_mode=homeassistant_mode)
-        monitor_dashboard = monitor_dashboard_snapshot(homeassistant_mode=homeassistant_mode)
-        monitor_details = monitor_detail_snapshot(homeassistant_mode=homeassistant_mode)
+        preview_action_groups = st.get("preview_action_groups") or []
+        monitor_dashboard = st.get("monitor_dashboard") or []
+        monitor_details = st.get("monitor_details") or []
         if homeassistant_mode:
             power_commands_body = """
       <div class=\"row\"><label>Power Control Path</label><div><input type=\"text\" value=\"Home Assistant Supervisor host API\" readonly><div class=\"hint\">Uses <code>POST /host/shutdown</code> for <code>CMD=shutdown</code> and <code>POST /host/reboot</code> for <code>CMD=restart</code> / <code>CMD=reboot</code>.</div></div></div>
@@ -1128,39 +1123,10 @@ window.__HOST_METRICS_BOOT__ = {{
 
     @app.get("/api/status")
     def api_status() -> Any:
-        status = dict(pub.status())
-        homeassistant_mode = is_home_assistant_app_mode()
-        cmd = status.get("cmd")
-        if isinstance(cmd, list):
-            status["cmd"] = redact_agent_command_args(cmd, REDACTED_SECRET_TEXT)
-        status["integration_dashboard"] = integration_dashboard_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["monitor_dashboard"] = monitor_dashboard_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["monitor_details"] = monitor_detail_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["monitor_detail_payloads"] = monitor_detail_payload_snapshot(
-            status.get("last_metrics", {}), homeassistant_mode=homeassistant_mode
-        )
-        status["preview_ui"] = preview_ui_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["preview_cards"] = preview_cards_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["preview_action_groups"] = preview_action_groups_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["summary_bar"] = summary_bar_snapshot(
-            homeassistant_mode=homeassistant_mode
-        )
-        status["integration_overview"] = integration_overview_snapshot(
-            status.get("integration_health", {}),
-            status.get("command_registry", []),
-            homeassistant_mode=homeassistant_mode,
+        status = build_browser_status_payload(
+            pub.status(),
+            homeassistant_mode=is_home_assistant_app_mode(),
+            redact_mask=REDACTED_SECRET_TEXT,
         )
         return jsonify(status)
 

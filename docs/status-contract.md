@@ -7,6 +7,9 @@ Scope:
 - This is the Web UI contract, not the internal polling contract.
 - It covers the payload shape that `esp_host_bridge/host_ui.js` consumes.
 - It is expected to grow additively. Existing keys and meanings should stay stable once relied on by the UI.
+- The current implementation builds a normalized runtime metric snapshot first, then renders:
+  - USB CDC frames from that metric snapshot
+  - browser status metadata from the published runtime state
 
 ## Base Runtime Fields
 
