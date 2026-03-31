@@ -1025,6 +1025,108 @@ function initViewMode() {
     else setMonitorMode('setup');
   } catch (_) { setMonitorMode('setup'); }
 }
+function integrationLabel(id) {
+  const key = String(id || '').trim().toLowerCase();
+  if (key === 'host') return 'Host';
+  if (key === 'docker') return currentWorkloadMode === 'homeassistant' ? 'Add-ons' : 'Docker';
+  if (key === 'vms') return currentWorkloadMode === 'homeassistant' ? 'Integrations' : 'VMs';
+  if (key === 'host_power') return 'Host Power';
+  return key ? key.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : 'Integration';
+}
+function integrationHealthClass(row) {
+  if (!row || row.enabled === false) return '';
+  if (row.available === false || row.last_error) return 'danger';
+  if (row.available === true) return 'ok';
+  return 'warn';
+}
+function integrationHealthText(row) {
+  if (!row) return 'Unknown';
+  if (row.enabled === false) return 'Disabled';
+  if (row.available === false) return 'Unavailable';
+  if (row.available === true) return 'Ready';
+  return 'Unknown';
+}
+function renderIntegrationOverview(s) {
+  const healthBox = document.getElementById('integrationHealthList');
+  const cmdBox = document.getElementById('commandRegistryList');
+  const cmdHint = document.getElementById('commandRegistryHint');
+  const sumEl = document.getElementById('sumIntegrations');
+  const health = (s && s.integration_health && typeof s.integration_health === 'object') ? s.integration_health : {};
+  const rows = Object.keys(health)
+    .sort((a, b) => {
+      const order = { host: 0, docker: 1, vms: 2 };
+      return (order[a] ?? 99) - (order[b] ?? 99) || a.localeCompare(b);
+    })
+    .map((key) => ({ id: key, row: health[key] }));
+  const enabledCount = rows.filter(({ row }) => row && row.enabled !== false).length;
+  const readyCount = rows.filter(({ row }) => row && row.enabled !== false && row.available === true && !row.last_error).length;
+  if (sumEl) {
+    sumEl.textContent = enabledCount ? `${readyCount}/${enabledCount} ready` : '--';
+  }
+  if (healthBox) {
+    if (!rows.length) {
+      healthBox.innerHTML = '<div class="monitor-note">Waiting for integration health...</div>';
+    } else {
+      healthBox.innerHTML = rows.map(({ id, row }) => {
+        const statusClass = integrationHealthClass(row);
+        const refreshAge = Number(row && row.last_refresh_age_s);
+        const successAge = Number(row && row.last_success_age_s);
+        const source = row && row.source ? `Source: ${escapeHtml(String(row.source))}` : 'Source: --';
+        const refreshText = Number.isFinite(refreshAge) ? `Refreshed ${escapeHtml(fmtAgeSec(refreshAge))}` : 'Refreshed --';
+        const successText = Number.isFinite(successAge) ? `Last success ${escapeHtml(fmtAgeSec(successAge))}` : 'Last success --';
+        const commands = Array.isArray(row && row.commands) ? row.commands : [];
+        const commandHtml = commands.length
+          ? `<div class="integration-health-tags">${commands.map((cmd) => `<span>${escapeHtml(String(cmd))}</span>`).join('')}</div>`
+          : '';
+        const errorHtml = row && row.last_error
+          ? `<div class="integration-health-error">Last error: ${escapeHtml(String(row.last_error))}</div>`
+          : '';
+        return `<div class="integration-health-row">
+          <div class="integration-health-head">
+            <div class="integration-health-title">${escapeHtml(integrationLabel(id))}</div>
+            <span class="status-pill ${statusClass}">${escapeHtml(integrationHealthText(row))}</span>
+          </div>
+          <div class="integration-health-meta">${source}</div>
+          <div class="integration-health-meta">${refreshText} • ${successText}</div>
+          ${errorHtml}
+          ${commandHtml}
+        </div>`;
+      }).join('');
+    }
+  }
+
+  const commands = Array.isArray(s && s.command_registry) ? s.command_registry : [];
+  if (cmdHint) {
+    cmdHint.textContent = commands.length ? `${commands.length} registered commands` : 'Waiting for command registry...';
+  }
+  if (cmdBox) {
+    if (!commands.length) {
+      cmdBox.innerHTML = '<div class="monitor-note">Waiting for command registry...</div>';
+    } else {
+      const grouped = new Map();
+      commands.forEach((entry) => {
+        const owner = String(entry && entry.owner_id || '').trim() || 'other';
+        if (!grouped.has(owner)) grouped.set(owner, []);
+        grouped.get(owner).push(entry);
+      });
+      cmdBox.innerHTML = Array.from(grouped.entries()).map(([owner, items]) => {
+        const rowsHtml = items.map((entry) => {
+          const patterns = Array.isArray(entry && entry.patterns) ? entry.patterns.join(', ') : '--';
+          const destructive = entry && entry.destructive ? '<span class="command-registry-flag">destructive</span>' : '';
+          const label = String(entry && (entry.label || entry.command_id) || '--');
+          return `<div class="command-registry-row">
+            <div class="command-registry-title">${escapeHtml(label)} ${destructive}</div>
+            <div class="command-registry-meta">${escapeHtml(patterns)}</div>
+          </div>`;
+        }).join('');
+        return `<div class="command-registry-group">
+          <div class="command-registry-owner">${escapeHtml(integrationLabel(owner))}</div>
+          ${rowsHtml}
+        </div>`;
+      }).join('');
+    }
+  }
+}
 function updateMonitorDashboard(s) {
   if (!s || typeof s !== 'object') return;
   const workloadMode = getWorkloadMode(s);
@@ -1057,6 +1159,7 @@ function updateMonitorDashboard(s) {
   else setMetricCard('VmCounts', String(m.VMSRUN ?? '--') + ' / ' + String(m.VMSPAUSE ?? '--') + ' / ' + String(m.VMSSTOP ?? '--') + ' / ' + String(m.VMSOTHER ?? '--'), labels.vmSummary, 'sev-ok');
   renderDockerLists(parseDockerCompact(m.DOCKER));
   renderVmLists(parseVmCompact(m.VMS));
+  renderIntegrationOverview(s);
   setSpark('sparkCPU', historyOf(s,'CPU'), '#60a5fa');
   setSpark('sparkMEM', historyOf(s,'MEM'), '#34d399');
   setSpark('sparkTEMP', historyOf(s,'TEMP'), '#fb923c');

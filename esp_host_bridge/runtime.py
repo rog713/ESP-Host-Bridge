@@ -275,19 +275,6 @@ from .integrations import (
     match_registered_command,
     poll_integrations,
 )
-from .metrics import (
-    detect_hardware_choices,
-    get_cpu_percent,
-    get_cpu_temp_c,
-    get_disk_bytes_local,
-    get_disk_temp_c,
-    get_disk_usage_pct,
-    get_fan_rpm,
-    get_gpu_metrics,
-    get_mem_percent,
-    get_net_bytes_local,
-    get_uptime_seconds,
-)
 from .serial import serial_io_bypassed, try_open_serial_once
 
 
@@ -527,41 +514,6 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     now = time.time()
     homeassistant_mode = is_home_assistant_app_mode()
     state.ha_token_present = bool(SUPERVISOR_TOKEN)
-    cpu_pct, state.cpu_prev_total, state.cpu_prev_idle = get_cpu_percent(state.cpu_prev_total, state.cpu_prev_idle)
-    mem_pct = get_mem_percent()
-    uptime_s = get_uptime_seconds()
-    cpu_temp_sample = get_cpu_temp_c(getattr(args, 'cpu_temp_sensor', None))
-    cpu_temp_available = cpu_temp_sample is not None
-    cpu_temp = float(cpu_temp_sample or 0.0)
-    if (now - state.last_disk_temp_ts) >= DISK_TEMP_REFRESH_SECONDS:
-        disk_temp_sample = get_disk_temp_c(args.timeout, args.disk_temp_device or args.disk_device)
-        state.disk_temp_c = float(disk_temp_sample or 0.0)
-        state.disk_temp_available = disk_temp_sample is not None
-        state.last_disk_temp_ts = now
-    disk_temp_available = bool(getattr(state, "disk_temp_available", False))
-    if (now - state.last_disk_usage_ts) >= DISK_USAGE_REFRESH_SECONDS:
-        state.disk_usage_pct = get_disk_usage_pct(args.disk_device, state.active_disk)
-        state.last_disk_usage_ts = now
-    gpu_enabled = not bool(getattr(args, "disable_gpu_polling", False))
-    if (now - state.last_slow_sensor_ts) >= SLOW_SENSOR_REFRESH_SECONDS:
-        fan_rpm_sample = get_fan_rpm(getattr(args, 'fan_sensor', None))
-        state.fan_rpm = float(fan_rpm_sample or 0.0)
-        state.fan_available = fan_rpm_sample is not None
-        if gpu_enabled:
-            gpu = get_gpu_metrics(args.timeout)
-            state.gpu_temp_c = float(gpu.get('temp_c', 0.0) or 0.0)
-            state.gpu_util_pct = float(gpu.get('util_pct', 0.0) or 0.0)
-            state.gpu_mem_pct = float(gpu.get('mem_pct', 0.0) or 0.0)
-            state.gpu_available = bool(gpu.get('available', False))
-        else:
-            state.gpu_temp_c = 0.0
-            state.gpu_util_pct = 0.0
-            state.gpu_mem_pct = 0.0
-            state.gpu_available = False
-        state.last_slow_sensor_ts = now
-    fan_available = bool(getattr(state, "fan_available", False))
-    gpu_available = bool(getattr(state, "gpu_available", False))
-
     integration_status = poll_integrations(
         PollContext(
             args=args,
@@ -571,6 +523,30 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
         )
     )
     state.integration_health = integration_health_snapshot(integration_status)
+
+    host_status = integration_status.get("host") or {}
+    host_metrics = dict(host_status.get("metrics") or {})
+    cpu_pct = float(safe_float(host_metrics.get("cpu_pct"), 0.0) or 0.0)
+    mem_pct = float(safe_float(host_metrics.get("mem_pct"), 0.0) or 0.0)
+    uptime_s = float(safe_float(host_metrics.get("uptime_s"), 0.0) or 0.0)
+    cpu_temp = float(safe_float(host_metrics.get("cpu_temp_c"), 0.0) or 0.0)
+    cpu_temp_available = bool(host_metrics.get("cpu_temp_available"))
+    disk_temp_available = bool(host_metrics.get("disk_temp_available"))
+    gpu_enabled = bool(host_metrics.get("gpu_enabled", not bool(getattr(args, "disable_gpu_polling", False))))
+    fan_available = bool(host_metrics.get("fan_available"))
+    gpu_available = bool(host_metrics.get("gpu_available"))
+    state.active_iface = str(host_metrics.get("active_iface") or state.active_iface or "")
+    state.active_disk = str(host_metrics.get("active_disk") or state.active_disk or "")
+    rx_kbps = float(safe_float(host_metrics.get("rx_kbps"), 0.0) or 0.0)
+    tx_kbps = float(safe_float(host_metrics.get("tx_kbps"), 0.0) or 0.0)
+    disk_r_kbs = float(safe_float(host_metrics.get("disk_r_kbs"), 0.0) or 0.0)
+    disk_w_kbs = float(safe_float(host_metrics.get("disk_w_kbs"), 0.0) or 0.0)
+    state.disk_temp_c = float(safe_float(host_metrics.get("disk_temp_c"), 0.0) or 0.0)
+    state.disk_usage_pct = float(safe_float(host_metrics.get("disk_usage_pct"), 0.0) or 0.0)
+    state.fan_rpm = float(safe_float(host_metrics.get("fan_rpm"), 0.0) or 0.0)
+    state.gpu_temp_c = float(safe_float(host_metrics.get("gpu_temp_c"), 0.0) or 0.0)
+    state.gpu_util_pct = float(safe_float(host_metrics.get("gpu_util_pct"), 0.0) or 0.0)
+    state.gpu_mem_pct = float(safe_float(host_metrics.get("gpu_mem_pct"), 0.0) or 0.0)
 
     docker_status = integration_status.get("docker") or {}
     docker_enabled = bool(docker_status.get("enabled", not bool(getattr(args, "disable_docker_polling", False))))
@@ -585,28 +561,6 @@ def build_status_line(args: argparse.Namespace, state: RuntimeState) -> str:
     vm_counts = dict(vm_status.get("counts") or {"running": 0, "stopped": 0, "paused": 0, "other": 0})
     vm_compact = str(vm_status.get("compact") or "-")
     state.ha_integrations_api_ok = vm_status.get("api_ok")
-
-    rx_bytes, tx_bytes, state.active_iface = get_net_bytes_local(args.iface, state.active_iface)
-    rx_kbps = 0.0
-    tx_kbps = 0.0
-    dt = 0.0
-    if state.prev_t is not None and now > state.prev_t:
-        dt = now - state.prev_t
-        if state.prev_rx is not None and rx_bytes >= state.prev_rx:
-            rx_kbps = ((rx_bytes - state.prev_rx) * 8.0) / 1000.0 / dt
-        if state.prev_tx is not None and tx_bytes >= state.prev_tx:
-            tx_kbps = ((tx_bytes - state.prev_tx) * 8.0) / 1000.0 / dt
-
-    disk_read_b, disk_write_b, state.active_disk = get_disk_bytes_local(args.disk_device, state.active_disk)
-    disk_r_kbs = 0.0
-    disk_w_kbs = 0.0
-    if dt > 0.0:
-        if state.prev_disk_read_b is not None and disk_read_b >= state.prev_disk_read_b:
-            disk_r_kbs = (disk_read_b - state.prev_disk_read_b) / 1024.0 / dt
-        if state.prev_disk_write_b is not None and disk_write_b >= state.prev_disk_write_b:
-            disk_w_kbs = (disk_write_b - state.prev_disk_write_b) / 1024.0 / dt
-    state.prev_disk_read_b, state.prev_disk_write_b = disk_read_b, disk_write_b
-    state.prev_rx, state.prev_tx, state.prev_t = rx_bytes, tx_bytes, now
 
     ha_docker_api = -1 if state.ha_addons_api_ok is None else (1 if state.ha_addons_api_ok else 0)
     ha_vms_api = -1 if state.ha_integrations_api_ok is None else (1 if state.ha_integrations_api_ok else 0)
@@ -973,6 +927,31 @@ class RunnerManager:
                     hist = deque(maxlen=METRIC_HISTORY_POINTS)
                     self._metric_history[k] = hist
                 hist.append((now_ts, fv))
+            self._refresh_integration_health_from_metrics(metrics, now_ts)
+
+    def _refresh_integration_health_from_metrics(self, metrics: Dict[str, str], now_ts: float) -> None:
+        data = getattr(self, "_integration_health_cache", None)
+        if not isinstance(data, dict) or not data:
+            return
+
+        def _touch(key: str) -> None:
+            row = data.get(key)
+            if not isinstance(row, dict):
+                return
+            if row.get("enabled") is False:
+                return
+            if row.get("available") is False:
+                return
+            row["last_refresh_ts"] = now_ts
+            row["last_success_ts"] = now_ts
+
+        metric_keys = set(metrics.keys())
+        if metric_keys.intersection({"CPU", "MEM", "TEMP", "RX", "TX", "DISK", "DISKPCT", "DISKR", "DISKW", "FAN", "GPUT", "GPUU", "GPUVM"}):
+            _touch("host")
+        if metric_keys.intersection({"DOCKRUN", "DOCKSTOP", "DOCKUNH", "DOCKER"}):
+            _touch("docker")
+        if metric_keys.intersection({"VMSRUN", "VMSSTOP", "VMSPAUSE", "VMSOTHER", "VMS"}):
+            _touch("vms")
 
     def _try_capture_esp_boot(self, line: str) -> None:
         raw = (line or "").strip()

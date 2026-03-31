@@ -626,6 +626,7 @@ def create_app(
       <div class="summary-chip"><div class="k">Agent</div><div class="v" id="sumAgent">--</div></div>
       <div class="summary-chip"><div class="k">Serial / Workloads</div><div class="v" id="sumDocker">--</div></div>
       <div class="summary-chip"><div class="k">Last Telemetry</div><div class="v" id="sumAge">--</div></div>
+      <div class="summary-chip"><div class="k">Integrations</div><div class="v" id="sumIntegrations">--</div></div>
       <div class="summary-chip"><div class="k">Host Power</div><div class="v" id="sumPower">--</div></div>
     </div>
     <div class="monitor-grid">
@@ -931,6 +932,19 @@ def create_app(
         <div class="mcard"><div class="metric-label">{vm_summary_label}</div><div class="metric-value" id="mvVmCounts">--</div><div class="metric-sub" id="msVmCounts">{vm_summary_sub}</div></div>
         <div class="mcard"><div class="metric-label">{workload_list_label}</div><div class="metric-sub" id="dockerMoreHint">{workload_waiting_text}</div><ul class="docker-list" id="dockerPreviewList"></ul><details><summary class="monitor-note">{workload_show_all}</summary><ul class="docker-list" id="dockerAllList"></ul></details></div>
         <div class="mcard"><div class="metric-label">{vm_list_label}</div><div class="metric-sub" id="vmMoreHint">{vm_waiting_text}</div><ul class="docker-list" id="vmPreviewList"></ul><details><summary class="monitor-note">{vm_show_all}</summary><ul class="docker-list" id="vmAllList"></ul></details></div>
+      </div></section>
+      <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-puzzle-outline"></span></span>Integration Health</h3><div class="mgroup-grid">
+        <div class="mcard">
+          <div class="metric-label">Integrations</div>
+          <div class="integration-health-list" id="integrationHealthList">
+            <div class="monitor-note">Waiting for integration health...</div>
+          </div>
+        </div>
+        <div class="mcard">
+          <div class="metric-label">Command Registry</div>
+          <div class="metric-sub" id="commandRegistryHint">Waiting for command registry...</div>
+          <div class="command-registry-list" id="commandRegistryList"></div>
+        </div>
       </div></section>
     </div>
   </div>

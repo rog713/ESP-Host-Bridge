@@ -30,12 +30,6 @@ def webui_default_cfg() -> Dict[str, Any]:
         "baud": 115200,
         "interval": 1.0,
         "timeout": 2.0,
-        "iface": "",
-        "gpu_polling_enabled": True,
-        "disk_device": "",
-        "disk_temp_device": "",
-        "cpu_temp_sensor": "",
-        "fan_sensor": "",
         "allow_host_cmds": False,
         "host_cmd_use_sudo": False,
         "shutdown_cmd": "",
@@ -102,12 +96,6 @@ def normalize_cfg(raw: Dict[str, Any]) -> Dict[str, Any]:
     cfg["baud"] = _clean_int(raw.get("baud", cfg["baud"]), cfg["baud"])
     cfg["interval"] = _clean_float(raw.get("interval", cfg["interval"]), cfg["interval"])
     cfg["timeout"] = _clean_float(raw.get("timeout", cfg["timeout"]), cfg["timeout"])
-    cfg["iface"] = _clean_str(raw.get("iface", cfg["iface"]), cfg["iface"])
-    cfg["gpu_polling_enabled"] = _clean_bool(raw.get("gpu_polling_enabled", cfg["gpu_polling_enabled"]), cfg["gpu_polling_enabled"])
-    cfg["disk_device"] = _clean_str(raw.get("disk_device", cfg["disk_device"]), cfg["disk_device"])
-    cfg["disk_temp_device"] = _clean_str(raw.get("disk_temp_device", cfg["disk_temp_device"]), cfg["disk_temp_device"])
-    cfg["cpu_temp_sensor"] = _clean_str(raw.get("cpu_temp_sensor", cfg["cpu_temp_sensor"]), cfg["cpu_temp_sensor"])
-    cfg["fan_sensor"] = _clean_str(raw.get("fan_sensor", cfg["fan_sensor"]), cfg["fan_sensor"])
     cfg["allow_host_cmds"] = _clean_bool(raw.get("allow_host_cmds", cfg["allow_host_cmds"]), cfg["allow_host_cmds"])
     cfg["host_cmd_use_sudo"] = _clean_bool(raw.get("host_cmd_use_sudo", cfg["host_cmd_use_sudo"]), cfg["host_cmd_use_sudo"])
     cfg["shutdown_cmd"] = _clean_str(raw.get("shutdown_cmd", cfg["shutdown_cmd"]), cfg["shutdown_cmd"])
@@ -223,19 +211,11 @@ def cfg_to_agent_args(cfg: Dict[str, Any]) -> list[str]:
     ]
     for key, flag in [
         ("serial_port", "--serial-port"),
-        ("iface", "--iface"),
-        ("virsh_uri", "--virsh-uri"),
-        ("disk_device", "--disk-device"),
-        ("disk_temp_device", "--disk-temp-device"),
-        ("cpu_temp_sensor", "--cpu-temp-sensor"),
-        ("fan_sensor", "--fan-sensor"),
     ]:
         val = _clean_str(cfg.get(key), "")
         if val:
             argv += [flag, val]
     argv += integration_cfg_to_agent_args(cfg, _cleaners())
-    if not _clean_bool(cfg.get("gpu_polling_enabled"), True):
-        argv += ["--disable-gpu-polling"]
     if _clean_bool(cfg.get("allow_host_cmds"), False):
         argv += ["--allow-host-cmds"]
     if _clean_bool(cfg.get("host_cmd_use_sudo"), False):
@@ -259,12 +239,6 @@ def cfg_from_form(form: Any) -> Dict[str, Any]:
             "baud": form.get("baud"),
             "interval": form.get("interval"),
             "timeout": form.get("timeout"),
-            "iface": form.get("iface"),
-            "gpu_polling_enabled": _has_checkbox("gpu_polling_enabled"),
-            "disk_device": form.get("disk_device"),
-            "disk_temp_device": form.get("disk_temp_device"),
-            "cpu_temp_sensor": form.get("cpu_temp_sensor"),
-            "fan_sensor": form.get("fan_sensor"),
             "allow_host_cmds": _has_checkbox("allow_host_cmds"),
             "host_cmd_use_sudo": _has_checkbox("host_cmd_use_sudo"),
             "shutdown_cmd": form.get("shutdown_cmd"),

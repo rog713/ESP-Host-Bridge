@@ -4,9 +4,11 @@ from typing import Any, Dict, Iterable, Optional, Sequence
 
 from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
 from .docker import DOCKER_INTEGRATION
+from .host import HOST_INTEGRATION
 from .vms import VMS_INTEGRATION
 
 _REGISTERED_INTEGRATIONS: tuple[IntegrationSpec, ...] = (
+    HOST_INTEGRATION,
     DOCKER_INTEGRATION,
     VMS_INTEGRATION,
 )
@@ -14,7 +16,7 @@ _REGISTERED_INTEGRATIONS: tuple[IntegrationSpec, ...] = (
 _BUILTIN_COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec(
         command_id="host_shutdown",
-        owner_id="host_power",
+        owner_id="host",
         patterns=("shutdown",),
         match_kind="exact",
         label="Shutdown Host",
@@ -23,7 +25,7 @@ _BUILTIN_COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         command_id="host_restart",
-        owner_id="host_power",
+        owner_id="host",
         patterns=("restart", "reboot"),
         match_kind="exact",
         label="Restart Host",

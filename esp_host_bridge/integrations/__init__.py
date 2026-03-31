@@ -1,4 +1,5 @@
 from .base import CleanerSet, CommandContext, CommandSpec, ConfigFieldSpec, IntegrationSpec, PollContext
+from .host import HOST_INTEGRATION
 from .registry import (
     command_registry_snapshot,
     dispatch_integration_command,
@@ -21,6 +22,7 @@ __all__ = [
     "CommandSpec",
     "ConfigFieldSpec",
     "IntegrationSpec",
+    "HOST_INTEGRATION",
     "PollContext",
     "command_registry_snapshot",
     "dispatch_integration_command",
