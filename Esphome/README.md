@@ -60,7 +60,7 @@ On these pages:
 - The screensaver can be opened manually by long-pressing the center button on `HOME`.
 - It can also start automatically after the configured idle timeout.
 - Tap the screensaver to restore the last active page.
-- If the display has gone to sleep, any touch wakes it and restores the last active page.
+- If the display has gone to sleep, double-tap to wake it and restore the last active page.
 
 ### Boot Screen
 
