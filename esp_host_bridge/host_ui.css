@@ -299,6 +299,13 @@
     .docker-pill.other { color:#dbeafe; border-color: rgba(96,165,250,0.22); background: rgba(96,165,250,0.08); }
     .docker-card-wide { grid-column: span 2; }
     .monitor-note { color:var(--muted); font-size:12px; }
+    .integration-dashboard-cards { display:grid; gap:8px; margin-top:8px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .integration-dashboard-card { border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px; background: rgba(255,255,255,0.02); display:grid; gap:6px; }
+    .integration-dashboard-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .integration-dashboard-title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color: var(--text); }
+    .integration-dashboard-title .mdi { font-size:16px; color: var(--text); }
+    .integration-dashboard-meta { font-size:12px; color: var(--muted); overflow-wrap:anywhere; }
+    .integration-health-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
     .integration-health-list,
     .command-registry-list { display:grid; gap:8px; margin-top:8px; }
     .integration-health-row,
@@ -306,6 +313,7 @@
     .integration-health-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
     .integration-health-title,
     .command-registry-owner { font-size:13px; font-weight:700; color: var(--text); }
+    .command-registry-owner { display:flex; align-items:center; gap:8px; }
     .integration-health-meta,
     .command-registry-meta { font-size:12px; color: var(--muted); overflow-wrap:anywhere; }
     .integration-health-error { font-size:12px; color: #fca5a5; overflow-wrap:anywhere; }

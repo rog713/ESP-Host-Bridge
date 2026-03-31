@@ -15,6 +15,7 @@ from esp_host_bridge.integrations import (
     dispatch_integration_command,
     get_integration_spec,
     get_registered_config_fields,
+    integration_dashboard_snapshot,
     integration_health_snapshot,
     redact_agent_command_args,
 )
@@ -101,6 +102,25 @@ class IntegrationRegistryTests(unittest.TestCase):
                 "vm_restart",
             }.issubset(ids)
         )
+
+    def test_integration_dashboard_snapshot_exposes_labels_and_action_groups(self) -> None:
+        default_rows = integration_dashboard_snapshot(homeassistant_mode=False)
+        homeassistant_rows = integration_dashboard_snapshot(homeassistant_mode=True)
+
+        by_id = {row["integration_id"]: row for row in default_rows}
+        by_id_ha = {row["integration_id"]: row for row in homeassistant_rows}
+
+        self.assertEqual([row["integration_id"] for row in default_rows], ["host", "docker", "vms"])
+        self.assertEqual(by_id["host"]["label"], "Telemetry Sources")
+        self.assertEqual(by_id["host"]["action_group_title"], "Host Power")
+        self.assertEqual(by_id["docker"]["label"], "Docker")
+        self.assertEqual(by_id["docker"]["action_group_title"], "Docker Controls")
+        self.assertEqual(by_id["vms"]["action_group_title"], "VM Controls")
+
+        self.assertEqual(by_id_ha["docker"]["label"], "Add-ons")
+        self.assertEqual(by_id_ha["docker"]["action_group_title"], "Add-on Controls")
+        self.assertEqual(by_id_ha["vms"]["label"], "Integrations")
+        self.assertEqual(by_id_ha["vms"]["action_group_title"], "Integration Controls")
 
     def test_cfg_to_agent_args_and_redaction_cover_registered_integrations(self) -> None:
         cfg = {

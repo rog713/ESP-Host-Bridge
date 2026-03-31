@@ -34,7 +34,7 @@ from .config import (
     validate_cfg,
     webui_default_cfg,
 )
-from .integrations import get_integration_spec, redact_agent_command_args
+from .integrations import get_integration_spec, integration_dashboard_snapshot, redact_agent_command_args
 from .metrics import detect_hardware_choices
 from .runtime import (
     APP_VERSION,
@@ -938,6 +938,10 @@ def create_app(
       <section class="mgroup span12"><h3><span class="gicon" aria-hidden="true"><span class="mdi mdi-puzzle-outline"></span></span>Integration Health</h3><div class="mgroup-grid">
         <div class="mcard">
           <div class="metric-label">Integrations</div>
+          <div class="integration-dashboard-cards" id="integrationDashboardCards">
+            <div class="monitor-note">Waiting for integration metadata...</div>
+          </div>
+          <div class="integration-health-chips" id="integrationHealthChips"></div>
           <div class="integration-health-list" id="integrationHealthList">
             <div class="monitor-note">Waiting for integration health...</div>
           </div>
@@ -1015,6 +1019,9 @@ window.__HOST_METRICS_BOOT__ = {{
         cmd = status.get("cmd")
         if isinstance(cmd, list):
             status["cmd"] = redact_agent_command_args(cmd, REDACTED_SECRET_TEXT)
+        status["integration_dashboard"] = integration_dashboard_snapshot(
+            homeassistant_mode=is_home_assistant_app_mode()
+        )
         return jsonify(status)
 
     @app.get("/api/config")

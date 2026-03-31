@@ -1027,11 +1027,18 @@ function initViewMode() {
 }
 function integrationLabel(id) {
   const key = String(id || '').trim().toLowerCase();
-  if (key === 'host') return 'Host';
-  if (key === 'docker') return currentWorkloadMode === 'homeassistant' ? 'Add-ons' : 'Docker';
-  if (key === 'vms') return currentWorkloadMode === 'homeassistant' ? 'Integrations' : 'VMs';
+  const meta = integrationDashboardMeta(lastStatusPayload, key);
+  if (meta && meta.label) return String(meta.label);
   if (key === 'host_power') return 'Host Power';
   return key ? key.replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()) : 'Integration';
+}
+function integrationDashboardRows(s) {
+  return Array.isArray(s && s.integration_dashboard) ? s.integration_dashboard : [];
+}
+function integrationDashboardMeta(s, id) {
+  const target = String(id || '').trim().toLowerCase();
+  if (!target) return null;
+  return integrationDashboardRows(s).find((row) => String(row && row.integration_id || '').trim().toLowerCase() === target) || null;
 }
 function integrationHealthClass(row) {
   if (!row || row.enabled === false) return '';
@@ -1047,6 +1054,10 @@ function integrationHealthText(row) {
   return 'Unknown';
 }
 function renderIntegrationOverview(s) {
+  const metaRows = integrationDashboardRows(s);
+  const metaMap = new Map(metaRows.map((row) => [String(row && row.integration_id || '').trim().toLowerCase(), row]));
+  const cardsBox = document.getElementById('integrationDashboardCards');
+  const chipsBox = document.getElementById('integrationHealthChips');
   const healthBox = document.getElementById('integrationHealthList');
   const cmdBox = document.getElementById('commandRegistryList');
   const cmdHint = document.getElementById('commandRegistryHint');
@@ -1054,14 +1065,53 @@ function renderIntegrationOverview(s) {
   const health = (s && s.integration_health && typeof s.integration_health === 'object') ? s.integration_health : {};
   const rows = Object.keys(health)
     .sort((a, b) => {
-      const order = { host: 0, docker: 1, vms: 2 };
-      return (order[a] ?? 99) - (order[b] ?? 99) || a.localeCompare(b);
+      const orderA = Number((metaMap.get(a) || {}).sort_order);
+      const orderB = Number((metaMap.get(b) || {}).sort_order);
+      return (Number.isFinite(orderA) ? orderA : 99) - (Number.isFinite(orderB) ? orderB : 99) || a.localeCompare(b);
     })
     .map((key) => ({ id: key, row: health[key] }));
   const enabledCount = rows.filter(({ row }) => row && row.enabled !== false).length;
   const readyCount = rows.filter(({ row }) => row && row.enabled !== false && row.available === true && !row.last_error).length;
   if (sumEl) {
     sumEl.textContent = enabledCount ? `${readyCount}/${enabledCount} ready` : '--';
+  }
+  if (cardsBox) {
+    if (!metaRows.length) {
+      cardsBox.innerHTML = '<div class="monitor-note">Waiting for integration metadata...</div>';
+    } else {
+      cardsBox.innerHTML = metaRows.map((meta) => {
+        const id = String(meta && meta.integration_id || '').trim().toLowerCase();
+        const row = health[id] || null;
+        const icon = escapeHtml(String(meta && meta.icon_class || 'mdi-puzzle-outline'));
+        const label = escapeHtml(String(meta && meta.label || integrationLabel(id)));
+        const source = row && row.source ? escapeHtml(String(row.source)) : '--';
+        const commands = Number(meta && meta.command_count);
+        const commandsText = Number.isFinite(commands) ? `${commands} command${commands === 1 ? '' : 's'}` : '--';
+        const statusClass = integrationHealthClass(row);
+        const statusText = escapeHtml(integrationHealthText(row));
+        return `<div class="integration-dashboard-card">
+          <div class="integration-dashboard-head">
+            <div class="integration-dashboard-title"><span class="mdi ${icon}" aria-hidden="true"></span>${label}</div>
+            <span class="status-pill ${statusClass}">${statusText}</span>
+          </div>
+          <div class="integration-dashboard-meta">Source: ${source}</div>
+          <div class="integration-dashboard-meta">${escapeHtml(commandsText)}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+  if (chipsBox) {
+    if (!rows.length) {
+      chipsBox.innerHTML = '';
+    } else {
+      chipsBox.innerHTML = rows.map(({ id, row }) => {
+        const meta = metaMap.get(id);
+        const label = escapeHtml(String((meta && meta.label) || integrationLabel(id)));
+        const statusClass = integrationHealthClass(row);
+        const statusText = escapeHtml(integrationHealthText(row));
+        return `<div class="status-pill ${statusClass}">${label}: ${statusText}</div>`;
+      }).join('');
+    }
   }
   if (healthBox) {
     if (!rows.length) {
@@ -1110,6 +1160,9 @@ function renderIntegrationOverview(s) {
         grouped.get(owner).push(entry);
       });
       cmdBox.innerHTML = Array.from(grouped.entries()).map(([owner, items]) => {
+        const meta = metaMap.get(owner);
+        const ownerTitle = meta && meta.action_group_title ? String(meta.action_group_title) : integrationLabel(owner);
+        const ownerIcon = meta && meta.icon_class ? `mdi ${escapeHtml(String(meta.icon_class))}` : '';
         const rowsHtml = items.map((entry) => {
           const patterns = Array.isArray(entry && entry.patterns) ? entry.patterns.join(', ') : '--';
           const destructive = entry && entry.destructive ? '<span class="command-registry-flag">destructive</span>' : '';
@@ -1120,7 +1173,7 @@ function renderIntegrationOverview(s) {
           </div>`;
         }).join('');
         return `<div class="command-registry-group">
-          <div class="command-registry-owner">${escapeHtml(integrationLabel(owner))}</div>
+          <div class="command-registry-owner">${ownerIcon ? `<span class="${ownerIcon}" aria-hidden="true"></span>` : ''}${escapeHtml(ownerTitle)}</div>
           ${rowsHtml}
         </div>`;
       }).join('');

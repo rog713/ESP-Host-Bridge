@@ -86,6 +86,9 @@ class IntegrationSpec:
     homeassistant_title: Optional[str] = None
     section_key: str = ""
     icon_class: str = ""
+    sort_order: int = 100
+    action_group_title: Optional[str] = None
+    homeassistant_action_group_title: Optional[str] = None
     config_fields: tuple[ConfigFieldSpec, ...] = ()
     setup_choices: tuple[SetupChoiceSpec, ...] = ()
     commands: tuple[CommandSpec, ...] = ()

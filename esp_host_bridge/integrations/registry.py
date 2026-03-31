@@ -49,6 +49,35 @@ def get_integration_spec(integration_id: str) -> Optional[IntegrationSpec]:
     return None
 
 
+def integration_dashboard_snapshot(*, homeassistant_mode: bool = False) -> list[Dict[str, Any]]:
+    rows: list[Dict[str, Any]] = []
+    for integration in _REGISTERED_INTEGRATIONS:
+        label = (
+            str(integration.homeassistant_title or "").strip()
+            if homeassistant_mode and str(integration.homeassistant_title or "").strip()
+            else str(integration.title or integration.integration_id).strip()
+        )
+        action_group_title = (
+            str(integration.homeassistant_action_group_title or "").strip()
+            if homeassistant_mode and str(integration.homeassistant_action_group_title or "").strip()
+            else str(integration.action_group_title or label).strip()
+        )
+        rows.append(
+            {
+                "integration_id": integration.integration_id,
+                "label": label,
+                "icon_class": str(integration.icon_class or "mdi-puzzle-outline"),
+                "sort_order": int(integration.sort_order),
+                "action_group_title": action_group_title or label,
+                "command_count": len(integration.commands) + (
+                    len([spec for spec in _BUILTIN_COMMANDS if spec.owner_id == integration.integration_id])
+                ),
+            }
+        )
+    rows.sort(key=lambda row: (int(row.get("sort_order", 100)), str(row.get("label", ""))))
+    return rows
+
+
 def get_registered_commands() -> tuple[CommandSpec, ...]:
     out: list[CommandSpec] = list(_BUILTIN_COMMANDS)
     for integration in _REGISTERED_INTEGRATIONS:
