@@ -167,6 +167,16 @@ globals:
     restore_value: no
     initial_value: '""'
 
+  - id: sleep_wake_tap_count
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  - id: sleep_wake_first_tap_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
   - id: ss_last_interaction_ms
     type: uint32_t
     restore_value: no
@@ -798,6 +808,18 @@ touchscreen:
         condition: lvgl.is_paused
         then:
           - lambda: |-
+              const uint32_t now = millis();
+              const uint32_t window_ms = 700U;
+
+              if (id(sleep_wake_tap_count) == 0 ||
+                  (uint32_t)(now - id(sleep_wake_first_tap_ms)) > window_ms) {
+                id(sleep_wake_tap_count) = 1;
+                id(sleep_wake_first_tap_ms) = now;
+                return;
+              }
+
+              id(sleep_wake_tap_count) = 0;
+              id(sleep_wake_first_tap_ms) = 0U;
               id(display_sleeping) = false;
               id(ss_active) = false;
               id(ss_need_clear) = true;
@@ -805,11 +827,15 @@ touchscreen:
               if (br < 0) br = 0;
               if (br > 255) br = 255;
               id(my_display).set_brightness((uint8_t)br);
-              id(host_offline_grace_until_ms) = millis() + 8000U;
-          - script.execute: notify_host_display_wake
-          - script.execute: notify_host_wifi_status
-          - lvgl.resume
-          - script.execute: restore_last_page
+              id(host_offline_grace_until_ms) = now + 8000U;
+          - if:
+              condition:
+                lambda: 'return !id(display_sleeping);'
+              then:
+                - script.execute: notify_host_display_wake
+                - script.execute: notify_host_wifi_status
+                - lvgl.resume
+                - script.execute: restore_last_page
 
 display:
   - platform: qspi_dbi
