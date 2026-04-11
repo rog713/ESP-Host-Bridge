@@ -1,0 +1,5 @@
+Jellyfin official icon asset.
+Source: https://commons.wikimedia.org/wiki/File:Jellyfin_-_icon-transparent.svg
+Original upstream: https://github.com/jellyfin/jellyfin-ux
+License: CC BY-SA 4.0
+Derived file in this repo: jellyfin-icon-official-black.png
